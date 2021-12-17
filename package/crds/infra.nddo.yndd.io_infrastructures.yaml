@@ -1,0 +1,215 @@
+
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.4.1
+  creationTimestamp: null
+  name: infrastructures.infra.nddo.yndd.io
+spec:
+  group: infra.nddo.yndd.io
+  names:
+    kind: Infrastructure
+    listKind: InfrastructureList
+    plural: infrastructures
+    singular: infrastructure
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: InfraInfrastructure is the Schema for the Infrastructure API
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: A InfrastructureSpec defines the desired state of a Infrastructure.
+            properties:
+              infrastructure:
+                description: nddv1.ResourceSpec `json:",inline"`
+                properties:
+                  addressing-scheme:
+                    enum:
+                    - dual-stack
+                    - ipv4-only
+                    - ipv6-only
+                    type: string
+                  admin-state:
+                    default: enable
+                    enum:
+                    - disable
+                    - enable
+                    type: string
+                  description:
+                    description: kubebuilder:validation:MinLength=1 kubebuilder:validation:MaxLength=255
+                    pattern: '[A-Za-z0-9 !@#$^&()|+=`~.,''/_:;?-]*'
+                    type: string
+                  interface-tag-pool:
+                    type: string
+                  isl-ipam-pool:
+                    type: string
+                  loopback-ipam-pool:
+                    type: string
+                  overlay-as-pool:
+                    type: string
+                  overlay-protocol:
+                    items:
+                      type: string
+                    maxItems: 16
+                    minItems: 1
+                    type: array
+                  topology-name:
+                    type: string
+                  underlay-as-pool:
+                    type: string
+                  underlay-protocol:
+                    items:
+                      type: string
+                    maxItems: 16
+                    minItems: 1
+                    type: array
+                type: object
+            type: object
+          status:
+            description: A InfrastructureStatus represents the observed state of a
+              InfrastructureSpec.
+            properties:
+              conditions:
+                description: Conditions of the resource.
+                items:
+                  description: A Condition that may apply to a resource
+                  properties:
+                    kind:
+                      description: Type of this condition. At most one of each condition
+                        type may apply to a resource at any point in time.
+                      type: string
+                    lastTransitionTime:
+                      description: LastTransitionTime is the last time this condition
+                        transitioned from one status to another.
+                      format: date-time
+                      type: string
+                    message:
+                      description: A Message containing details about this condition's
+                        last transition from one status to another, if any.
+                      type: string
+                    reason:
+                      description: A Reason for this condition's last transition from
+                        one status to another.
+                      type: string
+                    status:
+                      description: Status of this condition; is it currently True,
+                        False, or Unknown?
+                      type: string
+                  required:
+                  - kind
+                  - lastTransitionTime
+                  - reason
+                  - status
+                  type: object
+                type: array
+              controllerRef:
+                description: A Reference to a named object.
+                properties:
+                  name:
+                    description: Name of the referenced object.
+                    type: string
+                required:
+                - name
+                type: object
+              infrastructure:
+                description: NddoinfrastructureInfrastructure struct
+                properties:
+                  addressing-scheme:
+                    type: string
+                  admin-state:
+                    type: string
+                  description:
+                    type: string
+                  interface-tag-pool:
+                    type: string
+                  isl-ipam-pool:
+                    type: string
+                  loopback-ipam-pool:
+                    type: string
+                  overlay-as-pool:
+                    type: string
+                  overlay-protocol:
+                    items:
+                      type: string
+                    maxItems: 16
+                    minItems: 1
+                    type: array
+                  state:
+                    description: NddoinfrastructureInfrastructureState struct
+                    properties:
+                      last-update:
+                        type: string
+                      link:
+                        items:
+                          description: NddoinfrastructureInfrastructureStateLink struct
+                          type: object
+                        type: array
+                      node:
+                        items:
+                          description: NddoinfrastructureInfrastructureStateNode struct
+                          properties:
+                            endpoint:
+                              items:
+                                description: NddoinfrastructureInfrastructureStateNodeEndpoint
+                                  struct
+                                properties:
+                                  lag:
+                                    type: boolean
+                                  lag-sub-link:
+                                    type: boolean
+                                  name:
+                                    type: string
+                                required:
+                                - name
+                                type: object
+                              type: array
+                            name:
+                              type: string
+                          required:
+                          - name
+                          type: object
+                        type: array
+                      reason:
+                        type: string
+                      status:
+                        type: string
+                    type: object
+                  topology-name:
+                    type: string
+                  underlay-as-pool:
+                    type: string
+                  underlay-protocol:
+                    items:
+                      type: string
+                    maxItems: 16
+                    minItems: 1
+                    type: array
+                type: object
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []

@@ -1,0 +1,8 @@
+
+apiVersion: meta.pkg.ndd.yndd.io/v1
+kind: Intent
+metadata:
+  name: nddo-intent-infra
+spec:
+  controller:
+    image: yndd/nddo-intent-infra-controller:latest
