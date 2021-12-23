@@ -18,6 +18,7 @@ package infra
 
 import (
 	"context"
+	"strings"
 
 	//ndddvrv1 "github.com/yndd/ndd-core/apis/dvr/v1"
 	"github.com/yndd/ndd-runtime/pkg/logging"
@@ -35,6 +36,8 @@ type EnqueueRequestForAllTopologyNodes struct {
 	client client.Client
 	log    logging.Logger
 	ctx    context.Context
+
+	speedy map[string]int
 }
 
 // Create enqueues a request for all infrastructures which pertains to the topology.
@@ -74,7 +77,13 @@ func (e *EnqueueRequestForAllTopologyNodes) add(obj runtime.Object, queue adder)
 	for _, infra := range d.Items {
 		// only enqueue if the topology name match
 		if infra.GetTopologyName() == dd.GetTopologyName() {
-			queue.Add(reconcile.Request{NamespacedName: types.NamespacedName{Name: infra.GetName()}})
+
+			infraname := strings.Join([]string{dd.GetNamespace(), infra.GetName()}, "/")
+			e.speedy[infraname] = 0
+
+			queue.Add(reconcile.Request{NamespacedName: types.NamespacedName{
+				Namespace: dd.GetNamespace(),
+				Name:      infra.GetName()}})
 		}
 	}
 }

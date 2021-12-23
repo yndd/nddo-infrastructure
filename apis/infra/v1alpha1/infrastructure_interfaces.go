@@ -211,3 +211,55 @@ func (x *Infrastructure) GetStatus() string {
 	}
 	return "unknown"
 }
+
+type AddressingScheme string
+
+const (
+	AddressingSchemeDualStack AddressingScheme = "dual-stack"
+	AddressingSchemeIpv4Only  AddressingScheme = "ipv4-only"
+	AddressingSchemeIpv6Only  AddressingScheme = "ipv6-only"
+)
+
+func (s AddressingScheme) String() string {
+	switch s {
+	case AddressingSchemeDualStack:
+		return "dual-stack"
+	case AddressingSchemeIpv4Only:
+		return "ipv4-only"
+	case AddressingSchemeIpv6Only:
+		return "ipv6-only"
+	}
+	return "unknown"
+}
+
+type Protocol string
+
+const (
+	ProtocolEBGP        Protocol = "ebgp"
+	ProtocolIBGP        Protocol = "ibgp"
+	ProtocolISIS        Protocol = "isis"
+	ProtocolOSPF        Protocol = "ospf"
+	ProtocolEVPN        Protocol = "evpn"
+	ProtocolIPVPN       Protocol = "ipvpn"
+	ProtocolRouteTarget Protocol = "route-target"
+)
+
+func (s Protocol) String() string {
+	switch s {
+	case ProtocolEBGP:
+		return "ebgp"
+	case ProtocolIBGP:
+		return "ibgp"
+	case ProtocolISIS:
+		return "isis"
+	case ProtocolOSPF:
+		return "ospf"
+	case ProtocolEVPN:
+		return "evpn"
+	case ProtocolIPVPN:
+		return "ipvpn"
+	case ProtocolRouteTarget:
+		return "route-target"
+	}
+	return "unknown"
+}

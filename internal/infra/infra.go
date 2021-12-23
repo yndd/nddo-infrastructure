@@ -17,6 +17,8 @@ limitations under the License.
 package infra
 
 import (
+	"fmt"
+
 	"github.com/yndd/ndd-runtime/pkg/logging"
 	"github.com/yndd/ndd-runtime/pkg/resource"
 )
@@ -38,7 +40,8 @@ func WithInfraClient(c resource.ClientApplicator) InfraOption {
 
 func NewInfra(opts ...InfraOption) Infra {
 	i := &infra{
-		nodes: make([]Node, 0),
+		nodes: make(map[string]Node),
+		links: make(map[string]Link),
 	}
 
 	for _, f := range opts {
@@ -51,62 +54,28 @@ func NewInfra(opts ...InfraOption) Infra {
 var _ Infra = &infra{}
 
 type Infra interface {
-	GetNodes() []Node
-	GetNode(string) Node
-	AddNode(Node)
-	DeleteNode(Node)
-	GetLinks() []Link
-	GetLink(string) Link
-	AddLink(Link)
-	DeleteLink(Link)
+	GetNodes() map[string]Node
+	//AddNode(Node)
+	//DeleteNode(Node)
+	GetLinks() map[string]Link
+	//AddLink(Link)
+	//DeleteLink(Link)
+	PrintNodes()
 }
 
 type infra struct {
 	client resource.ClientApplicator
 	log    logging.Logger
 
-	nodes []Node
-	links []Link
+	nodes map[string]Node
+	links map[string]Link
 }
 
-func (x *infra) GetNodes() []Node {
+func (x *infra) GetNodes() map[string]Node {
 	return x.nodes
 }
 
-func (x *infra) GetNode(n string) Node {
-	for _, node := range x.nodes {
-		if node.GetName() == n {
-			return node
-		}
-	}
-	return nil
-}
-
-func (x *infra) AddNode(n Node) {
-	for _, node := range x.nodes {
-		if node.GetName() == n.GetName() {
-			node = n
-			return
-		}
-	}
-	x.nodes = append(x.nodes, n)
-}
-
-func (x *infra) DeleteNode(n Node) {
-	found := false
-	idx := 0
-	for i, node := range x.nodes {
-		if node.GetName() == n.GetName() {
-			idx = i
-			found = true
-		}
-	}
-	if found {
-		x.nodes = append(x.nodes[:idx], x.nodes[idx+1:]...)
-	}
-}
-
-func (x *infra) GetLinks() []Link {
+func (x *infra) GetLinks() map[string]Link {
 	return x.links
 }
 
@@ -119,26 +88,9 @@ func (x *infra) GetLink(n string) Link {
 	return nil
 }
 
-func (x *infra) AddLink(l Link) {
-	for _, link := range x.links {
-		if link.GetName() == l.GetName() {
-			link = l
-			return
-		}
-	}
-	x.links = append(x.links, l)
-}
-
-func (x *infra) DeleteLink(l Link) {
-	found := false
-	idx := 0
-	for i, link := range x.links {
-		if link.GetName() == l.GetName() {
-			idx = i
-			found = true
-		}
-	}
-	if found {
-		x.links = append(x.links[:idx], x.links[idx+1:]...)
+func (x *infra) PrintNodes() {
+	fmt.Printf("infrastructure node information\n")
+	for name, n := range x.GetNodes() {
+		n.Print(name, 1)
 	}
 }

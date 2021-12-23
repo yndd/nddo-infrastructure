@@ -17,6 +17,9 @@ package infra
 
 import (
 	"context"
+	"fmt"
+	"reflect"
+	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/yndd/ndd-runtime/pkg/logging"
@@ -28,6 +31,23 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
+
+type NodeKind string
+
+const (
+	NodeKindSRL  NodeKind = "srl"
+	NodeKindSROS NodeKind = "sros"
+)
+
+func (s NodeKind) String() string {
+	switch s {
+	case NodeKindSRL:
+		return "srl"
+	case NodeKindSROS:
+		return "sros"
+	}
+	return "srl"
+}
 
 // InfraOption is used to configure the Infra.
 type NodeOption func(*node)
@@ -46,7 +66,7 @@ func WithNodeClient(c resource.ClientApplicator) NodeOption {
 
 func NewNode(opts ...NodeOption) Node {
 	i := &node{
-		itfces: make([]Interface, 0),
+		itfces: make(map[string]Interface),
 	}
 
 	for _, f := range opts {
@@ -69,16 +89,14 @@ type Node interface {
 	SetKind(string)
 	SetPlatform(string)
 	SetAS(uint32)
-	GetInterfaces() []Interface
-	GetInterface(string) Interface
-	AddInterface(Interface)
-	DeleteInterface(Interface)
+	GetInterfaces() map[string]Interface
 	AllocateAS(ctx context.Context, cr infrav1alpha1.If, x topov1alpha1.Tn) error
 	DeAllocateAS(ctx context.Context, cr infrav1alpha1.If, tn topov1alpha1.Tn) error
 	ValidateAS(ctx context.Context, cr infrav1alpha1.If, tn topov1alpha1.Tn) (*uint32, error)
-	AllocateLoopbackIP(ctx context.Context, cr infrav1alpha1.If, tn topov1alpha1.Tn) error
-	DeAllocateLoopbackIP(ctx context.Context, cr infrav1alpha1.If, tn topov1alpha1.Tn) error
-	ValidateLoopbackIP(ctx context.Context, cr infrav1alpha1.If, tn topov1alpha1.Tn) (*string, error)
+	AllocateLoopbackIP(ctx context.Context, cr infrav1alpha1.If, tn topov1alpha1.Tn, ipamOptions *IpamOptions) error
+	DeAllocateLoopbackIP(ctx context.Context, cr infrav1alpha1.If, tn topov1alpha1.Tn, ipamOptions *IpamOptions) error
+	ValidateLoopbackIP(ctx context.Context, cr infrav1alpha1.If, tn topov1alpha1.Tn, ipamOptions *IpamOptions) (*string, error)
+	Print(string, int)
 }
 
 type node struct {
@@ -90,14 +108,20 @@ type node struct {
 	kind     NodeKind
 	platform *string
 	as       *uint32
-	itfces   []Interface
+	itfces   map[string]Interface
 }
 
 func (x *node) GetName() string {
+	if reflect.ValueOf(x.name).IsZero() {
+		return ""
+	}
 	return *x.name
 }
 
 func (x *node) GetIndex() uint32 {
+	if reflect.ValueOf(x.index).IsZero() {
+		return 0
+	}
 	return *x.index
 }
 
@@ -106,10 +130,16 @@ func (x *node) GetKind() string {
 }
 
 func (x *node) GetPlatform() string {
+	if reflect.ValueOf(x.platform).IsZero() {
+		return ""
+	}
 	return *x.platform
 }
 
 func (x *node) GetAS() uint32 {
+	if reflect.ValueOf(x.as).IsZero() {
+		return 0
+	}
 	return *x.as
 }
 
@@ -133,41 +163,8 @@ func (x *node) SetAS(as uint32) {
 	x.as = &as
 }
 
-func (x *node) GetInterfaces() []Interface {
+func (x *node) GetInterfaces() map[string]Interface {
 	return x.itfces
-}
-
-func (x *node) GetInterface(n string) Interface {
-	for _, i := range x.itfces {
-		if i.GetName() == n {
-			return i
-		}
-	}
-	return nil
-}
-
-func (x *node) AddInterface(n Interface) {
-	for _, i := range x.itfces {
-		if i.GetName() == n.GetName() {
-			i = n
-			return
-		}
-	}
-	x.itfces = append(x.itfces, n)
-}
-
-func (x *node) DeleteInterface(n Interface) {
-	found := false
-	idx := 0
-	for i, itfce := range x.itfces {
-		if itfce.GetName() == n.GetName() {
-			idx = i
-			found = true
-		}
-	}
-	if found {
-		x.itfces = append(append(x.itfces[:idx], x.itfces[idx+1:]...))
-	}
 }
 
 func (x *node) AllocateAS(ctx context.Context, cr infrav1alpha1.If, tn topov1alpha1.Tn) error {
@@ -201,24 +198,24 @@ func (x *node) ValidateAS(ctx context.Context, cr infrav1alpha1.If, tn topov1alp
 	return nil, errors.Errorf("%s: %s", errUnavailableAsPoolAllocation, aspoolAlloc.GetCondition(aspoolv1alpha1.ConditionKindAllocationReady).Message)
 }
 
-func (x *node) AllocateLoopbackIP(ctx context.Context, cr infrav1alpha1.If, tn topov1alpha1.Tn) error {
-	ipamAlloc := buildIpamAllocLoopback(cr, tn)
+func (x *node) AllocateLoopbackIP(ctx context.Context, cr infrav1alpha1.If, tn topov1alpha1.Tn, ipamOptions *IpamOptions) error {
+	ipamAlloc := buildIpamAllocLoopback(cr, tn, ipamOptions)
 	if err := x.client.Apply(ctx, ipamAlloc); err != nil {
 		return errors.Wrap(err, errApplyAllocIpam)
 	}
 	return nil
 }
 
-func (x *node) DeAllocateLoopbackIP(ctx context.Context, cr infrav1alpha1.If, tn topov1alpha1.Tn) error {
-	ipamAlloc := buildIpamAllocLoopback(cr, tn)
+func (x *node) DeAllocateLoopbackIP(ctx context.Context, cr infrav1alpha1.If, tn topov1alpha1.Tn, ipamOptions *IpamOptions) error {
+	ipamAlloc := buildIpamAllocLoopback(cr, tn, ipamOptions)
 	if err := x.client.Delete(ctx, ipamAlloc); err != nil {
 		return errors.Wrap(err, errDeleteAllocIpam)
 	}
 	return nil
 }
 
-func (x *node) ValidateLoopbackIP(ctx context.Context, cr infrav1alpha1.If, tn topov1alpha1.Tn) (*string, error) {
-	ipamAlloc := buildIpamAllocLoopback(cr, tn)
+func (x *node) ValidateLoopbackIP(ctx context.Context, cr infrav1alpha1.If, tn topov1alpha1.Tn, ipamOptions *IpamOptions) (*string, error) {
+	ipamAlloc := buildIpamAllocLoopback(cr, tn, ipamOptions)
 	if err := x.client.Get(ctx, types.NamespacedName{Namespace: cr.GetNamespace(), Name: ipamAlloc.GetName()}, ipamAlloc); err != nil {
 		return nil, errors.Wrap(err, errGetAllocIpam)
 	}
@@ -232,19 +229,10 @@ func (x *node) ValidateLoopbackIP(ctx context.Context, cr infrav1alpha1.If, tn t
 	return nil, errors.Errorf("%s: %s", errUnavailableIpamAllocation, ipamAlloc.GetCondition(ipamv1alpha1.ConditionKindAllocationReady).Message)
 }
 
-type NodeKind string
-
-const (
-	NodeKindSRL  NodeKind = "srl"
-	NodeKindSROS NodeKind = "sros"
-)
-
-func (s NodeKind) String() string {
-	switch s {
-	case NodeKindSRL:
-		return "srl"
-	case NodeKindSROS:
-		return "sros"
+func (x *node) Print(nodeName string, n int) {
+	fmt.Printf("%s Node Name: %s Kind: %s AS: %d\n", nodeName, strings.Repeat(" ", n), x.GetKind(), x.GetAS())
+	n++
+	for itfceName, i := range x.itfces {
+		i.Print(itfceName, n)
 	}
-	return "srl"
 }

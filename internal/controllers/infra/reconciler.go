@@ -18,6 +18,7 @@ package infra
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"time"
 
@@ -27,6 +28,7 @@ import (
 	"github.com/yndd/ndd-runtime/pkg/logging"
 	"github.com/yndd/ndd-runtime/pkg/meta"
 	"github.com/yndd/ndd-runtime/pkg/resource"
+	"inet.af/netaddr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -35,8 +37,10 @@ import (
 	infrav1alpha1 "github.com/yndd/nddo-infrastructure/apis/infra/v1alpha1"
 	"github.com/yndd/nddo-infrastructure/internal/infra"
 	"github.com/yndd/nddo-infrastructure/internal/shared"
+	ipamv1alpha1 "github.com/yndd/nddr-ipam/apis/ipam/v1alpha1"
 	topov1alpha1 "github.com/yndd/nddr-topology/apis/topo/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 const (
@@ -51,7 +55,8 @@ const (
 	// Errors
 	errGetK8sResource = "cannot get infra resource"
 	errUpdateStatus   = "cannot update status of infra resource"
-	errCreateObjects  = "cannot create infrastructure resources"
+	errCreate         = "cannot create resource"
+	errValidate       = "cannot validate resource"
 
 	// events
 	reasonReconcileSuccess      event.Reason = "ReconcileSuccess"
@@ -73,16 +78,14 @@ type Reconciler struct {
 	record  event.Recorder
 	managed mrManaged
 
-	nodehooks NodeHooks
-	linkhooks LinkHooks
-	ephooks   EpHooks
-
 	newInfra        func() infrav1alpha1.If
 	newTopoList     func() topov1alpha1.TpList
 	newTopoNodeList func() topov1alpha1.TnList
+	newTopoNode     func() topov1alpha1.Tn
 	newTopoLinkList func() topov1alpha1.TlList
 
-	infra map[string]infra.Infra
+	infra  map[string]infra.Infra
+	speedy map[string]int
 }
 
 type mrManaged struct {
@@ -93,27 +96,6 @@ type mrManaged struct {
 func WithLogger(log logging.Logger) ReconcilerOption {
 	return func(r *Reconciler) {
 		r.log = log
-	}
-}
-
-// WithNodeHooks specifies how the Reconciler should deploy child resources
-func WithNodeHooks(h NodeHooks) ReconcilerOption {
-	return func(r *Reconciler) {
-		r.nodehooks = h
-	}
-}
-
-// WithLinkHooks specifies how the Reconciler should deploy child resources
-func WithLinkHooks(h LinkHooks) ReconcilerOption {
-	return func(r *Reconciler) {
-		r.linkhooks = h
-	}
-}
-
-// WithEpHooks specifies how the Reconciler should deploy child resources
-func WithEpHooks(h LinkHooks) ReconcilerOption {
-	return func(r *Reconciler) {
-		r.ephooks = h
 	}
 }
 
@@ -132,6 +114,12 @@ func WithNewTopoListFn(f func() topov1alpha1.TpList) ReconcilerOption {
 func WithNewTopoNodeListFn(f func() topov1alpha1.TnList) ReconcilerOption {
 	return func(r *Reconciler) {
 		r.newTopoNodeList = f
+	}
+}
+
+func WithNewTopoNodeFn(f func() topov1alpha1.Tn) ReconcilerOption {
+	return func(r *Reconciler) {
+		r.newTopoNode = f
 	}
 }
 
@@ -166,25 +154,15 @@ func Setup(mgr ctrl.Manager, o controller.Options, nddcopts *shared.NddControlle
 	fn := func() infrav1alpha1.If { return &infrav1alpha1.Infrastructure{} }
 	tplfn := func() topov1alpha1.TpList { return &topov1alpha1.TopologyList{} }
 	tnlfn := func() topov1alpha1.TnList { return &topov1alpha1.TopologyNodeList{} }
+	tnfn := func() topov1alpha1.Tn { return &topov1alpha1.TopologyNode{} }
 	tllfn := func() topov1alpha1.TlList { return &topov1alpha1.TopologyLinkList{} }
 
 	r := NewReconciler(mgr,
 		WithLogger(nddcopts.Logger.WithValues("controller", name)),
-		WithNodeHooks(NewNodeHook(resource.ClientApplicator{
-			Client:     mgr.GetClient(),
-			Applicator: resource.NewAPIPatchingApplicator(mgr.GetClient()),
-		}, nddcopts.Logger.WithValues("nodehook", name))),
-		WithLinkHooks(NewLinkHook(resource.ClientApplicator{
-			Client:     mgr.GetClient(),
-			Applicator: resource.NewAPIPatchingApplicator(mgr.GetClient()),
-		}, nddcopts.Logger.WithValues("linkhook", name))),
-		WithEpHooks(NewEpHook(resource.ClientApplicator{
-			Client:     mgr.GetClient(),
-			Applicator: resource.NewAPIPatchingApplicator(mgr.GetClient()),
-		}, nddcopts.Logger.WithValues("ephook", name))),
 		WithNewReourceFn(fn),
 		WithNewTopoListFn(tplfn),
 		WithNewTopoNodeListFn(tnlfn),
+		WithNewTopoNodeFn(tnfn),
 		WithNewTopoLinkListFn(tllfn),
 		WithInfra(nddcopts.Infra),
 		WithRecorder(event.NewAPIRecorder(mgr.GetEventRecorderFor(name))),
@@ -194,18 +172,21 @@ func Setup(mgr ctrl.Manager, o controller.Options, nddcopts *shared.NddControlle
 		client: mgr.GetClient(),
 		log:    nddcopts.Logger,
 		ctx:    context.Background(),
+		speedy: r.speedy,
 	}
 
 	topoNodeHandler := &EnqueueRequestForAllTopologyNodes{
 		client: mgr.GetClient(),
 		log:    nddcopts.Logger,
 		ctx:    context.Background(),
+		speedy: r.speedy,
 	}
 
 	topoLinkHandler := &EnqueueRequestForAllTopologyLinks{
 		client: mgr.GetClient(),
 		log:    nddcopts.Logger,
 		ctx:    context.Background(),
+		speedy: r.speedy,
 	}
 
 	return ctrl.NewControllerManagedBy(mgr).
@@ -231,6 +212,7 @@ func NewReconciler(mgr ctrl.Manager, opts ...ReconcilerOption) *Reconciler {
 		log:     logging.NewNopLogger(),
 		record:  event.NewNopRecorder(),
 		managed: defaultMRManaged(mgr),
+		speedy:  make(map[string]int),
 	}
 
 	for _, f := range opts {
@@ -262,10 +244,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	if meta.WasDeleted(cr) {
 		log = log.WithValues("deletion-timestamp", cr.GetDeletionTimestamp())
 
-		if _, ok := r.infra[infraname]; ok {
-			// TODO if something holds this back for deletion
-
-		}
+		// TODO if something holds this back for deletion
+		//if _, ok := r.infra[infraname]; ok {
+		//}
 
 		if err := r.managed.RemoveFinalizer(ctx, cr); err != nil {
 			// If this is the first time we encounter this issue we'll be
@@ -284,6 +265,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		// thus there is no point trying to update its status.
 		log.Debug("Successfully deleted resource")
 		delete(r.infra, infraname)
+		delete(r.speedy, infraname)
 		return reconcile.Result{Requeue: false}, nil
 	}
 
@@ -304,19 +286,30 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		return reconcile.Result{Requeue: true}, errors.Wrap(r.client.Status().Update(ctx, cr), errUpdateStatus)
 	}
 
-	if err := r.handleAppLogic(ctx, cr, infraname); err != nil {
+	linkNotReadyInfo, err := r.handleAppLogic(ctx, cr, infraname)
+	if err != nil {
 		record.Event(cr, event.Warning(reasonAppLogicFailed, err))
 		log.Debug("handle applogic failed", "error", err)
 		cr.SetConditions(nddv1.ReconcileError(err), infrav1alpha1.NotReady())
 		return reconcile.Result{RequeueAfter: veryShortWait}, errors.Wrap(r.client.Status().Update(ctx, cr), errUpdateStatus)
 	}
+	timeout := reconcileTimeout
+	if len(linkNotReadyInfo) > 0 {
+		if r.speedy[infraname] <= 5 {
+			log.Debug("Speedy", "number", r.speedy[infraname])
+			r.speedy[infraname]++
+			timeout = veryShortWait
+		}
+	}
 
 	cr.SetConditions(nddv1.ReconcileSuccess(), infrav1alpha1.Ready())
 	// requeue to control that someone does not change/delete the resource created by the intent reconciler
-	return reconcile.Result{RequeueAfter: reconcileTimeout}, errors.Wrap(r.client.Status().Update(ctx, cr), errUpdateStatus)
+	r.infra[infraname].PrintNodes()
+
+	return reconcile.Result{RequeueAfter: timeout}, errors.Wrap(r.client.Status().Update(ctx, cr), errUpdateStatus)
 }
 
-func (r *Reconciler) handleAppLogic(ctx context.Context, cr infrav1alpha1.If, infraname string) error {
+func (r *Reconciler) handleAppLogic(ctx context.Context, cr infrav1alpha1.If, infraname string) (map[string][]string, error) {
 	log := r.log.WithValues("function", "handleAppLogic", "crname", cr.GetName())
 	//log.Debug("handleAppLogic")
 
@@ -324,139 +317,457 @@ func (r *Reconciler) handleAppLogic(ctx context.Context, cr infrav1alpha1.If, in
 		r.infra[infraname] = infra.NewInfra()
 	}
 
-	nodes := r.newTopoNodeList()
-	if err := r.client.List(ctx, nodes); err != nil {
-		return err
-	}
-	for _, node := range nodes.GetNodes() {
-		//log.Debug("handleAppLogic", "cr topology name", cr.GetName(), "node topology name", node.GetTopologyName(), "node index", node.GetNodeIndex())
-		if cr.GetTopologyName() == node.GetTopologyName() {
-			// if resource is not reconciled we dont process
-			//log.Debug("node condition", "status", node.GetCondition(topov1alpha1.ConditionKindAllocationReady).Status)
-
-			if node.GetCondition(topov1alpha1.ConditionKindAllocationReady).Status == corev1.ConditionTrue {
-				//log.Debug("Ready to allocate AS", "Node", node.GetName(), "Index", node.GetNodeIndex())
-				//log.Debug("Ready to allocate IP Loopback", "Node", node.GetName(), "Index", node.GetNodeIndex())
-
-				n := infra.NewNode(
-					infra.WithNodeClient(r.client),
-					infra.WithNodeLogger(r.log),
-				)
-				n.SetName(node.GetName())
-				n.SetIndex(node.GetNodeIndex())
-				n.SetKind(node.GetKindName())
-				n.SetPlatform(node.GetPlatform())
-				if err := n.AllocateAS(ctx, cr, node); err != nil {
-					log.Debug(errCreateObjects, "error", err)
-					return err
-				}
-				if err := n.AllocateLoopbackIP(ctx, cr, node); err != nil {
-					log.Debug(errCreateObjects, "error", err)
-					return err
-				}
-				r.infra[infraname].AddNode(n)
-
-			}
-		}
-	}
-
-	// validate allocated resources
-	for _, node := range nodes.GetNodes() {
-		if cr.GetTopologyName() == node.GetTopologyName() {
-			if node.GetCondition(topov1alpha1.ConditionKindAllocationReady).Status == corev1.ConditionTrue {
-				n := r.infra[infraname].GetNode(node.GetName())
-				as, err := n.ValidateAS(ctx, cr, node)
-				if err != nil {
-					log.Debug("error validate as allocation", "error", err)
-					return err
-				}
-				n.SetAS(*as)
-				time.Sleep(1 * time.Second)
-				prefix, err := n.ValidateLoopbackIP(ctx, cr, node)
-				if err != nil {
-					log.Debug("error validate prefix allocation", "error", err)
-					return err
-				}
-				itfce := infra.NewInterface(n)
-				itfce.SetKind(infra.InterfaceKindLoopback)
-				itfce.SetName("system")
-				n.AddInterface(itfce)
-
-				subitfce := infra.NewSubInterface(itfce)
-				subitfce.SetName("system0")
-				subitfce.SetKind(infra.SubInterfaceKindRouted)
-				subitfce.SetTaggingKind(infra.TaggingKindUnTagged)
-
-				a := infra.NewAddressInfo()
-				a.SetPrefix(*prefix)
-
-				subitfce.AddIpv4AddressInfo(a)
-
-			}
-		}
-	}
-
+	// get all link crs
 	links := r.newTopoLinkList()
 	if err := r.client.List(ctx, links); err != nil {
-		return err
+		return nil, err
 	}
+
+	notReadyLinks := make(map[string][]string)
 	for _, link := range links.GetLinks() {
 		if cr.GetTopologyName() == link.GetTopologyName() {
 			// if resource is not reconciled we dont process
-			//log.Debug("link condition", "status", link.GetCondition(topov1alpha1.ConditionKindAllocationReady).Status,
-			//	"linkKind", link.GetKind())
-			if link.GetCondition(topov1alpha1.ConditionKindAllocationReady).Status == corev1.ConditionTrue {
-				if link.GetKind() == topov1alpha1.LinkEPKindInfra.String() {
-					// allocate IP with a specific prefix length (where do we get this from ?)
-
-					l := infra.NewLink(link.GetName(),
-						infra.WithLinkClient(r.client),
-						infra.WithLinkLogger(r.log),
-					)
-
-					if err := l.AllocateLinkIP(ctx, cr, link); err != nil {
-						log.Debug(errCreateObjects, "error", err)
-						return err
-					}
-					r.infra[infraname].AddLink(l)
-				}
-			}
-		}
-	}
-
-	for _, link := range links.GetLinks() {
-		if cr.GetTopologyName() == link.GetTopologyName() {
-			// if resource is not reconciled we dont process
-			//log.Debug("link condition", "status", link.GetCondition(topov1alpha1.ConditionKindAllocationReady).Status,
-			//	"linkKind", link.GetKind())
-			if link.GetCondition(topov1alpha1.ConditionKindAllocationReady).Status == corev1.ConditionTrue {
-				if link.GetKind() == topov1alpha1.LinkEPKindInfra.String() {
-					// allocate IP with a specific prefix length (where do we get this from ?)
-
-					l := r.infra[infraname].GetLink(link.GetName())
-
-					time.Sleep(1 * time.Second)
-					prefix, err := l.ValidateLinkIP(ctx, cr, link)
-					if err != nil {
-						log.Debug(errCreateObjects, "error", err)
-						return err
+			// only process infra links
+			if link.GetKind() == topov1alpha1.LinkEPKindInfra.String() {
+				linkName := link.GetName()
+				if link.GetCondition(topov1alpha1.ConditionKindAllocationReady).Status == corev1.ConditionTrue {
+					if _, ok := r.infra[infraname].GetLinks()[linkName]; !ok {
+						r.infra[infraname].GetLinks()[linkName] = infra.NewLink(linkName,
+							infra.WithLinkClient(r.client),
+							infra.WithLinkLogger(r.log),
+						)
 					}
 
-					log.Debug("Ready to allocate Link Prefix", "Link Name", link.GetName(),
-						"NodeA", link.GetEndpointANodeName(),
-						"NodeB", link.GetEndpointBNodeName(),
-						"Prefix", *prefix)
+					for i := 0; i <= 1; i++ {
+						ip := getLinkParameters(i, link)
 
-					for _, node := range link.GetNodeEndpoints() {
-						for _, ep := range node.Endpoint {
-							if !*ep.LagSubLink {
-								log.Debug("Ready to allocate IP for the endpoint", "NodeName", node.Name, "InterfaceName", ep.Name)
+						// keep track of the active epg links, for validation/garbage collection later on
+
+						l := r.infra[infraname].GetLinks()[linkName]
+						//r.log.Debug("handleAppLogic1", "idx", i, "nodeName", ip.nodeName)
+						l.SetNodeName(i, ip.nodeName)
+						l.SetInterfaceName(i, ip.itfceName)
+
+						if err := r.createNode(ctx, cr, infraname, ip); err != nil {
+							return nil, err
+						}
+
+						// We allocate IPs only from links that are not LAG members
+						// only process links with infra tag and non lag-members
+						if !link.GetLagMember() {
+							for _, af := range getAddressFamilies(cr.GetAddressingScheme()) {
+								ipamOptions := &infra.IpamOptions{
+									NetworkInstance: "default",
+									AddressFamily:   af,
+								}
+								if err := l.AllocateIPLink(ctx, cr, link, ipamOptions); err != nil {
+									//log.Debug(errCreate, "error", err)
+									return nil, err
+								}
 							}
 						}
 					}
+				} else {
+					notReadyLinks[linkName] = make([]string, 2)
+					notReadyLinks[linkName][0] = string(link.GetCondition(nddv1.ConditionKindSynced).Status)
+					notReadyLinks[linkName][1] = string(link.GetCondition(topov1alpha1.ConditionKindAllocationReady).Status)
 				}
+			}
+		}
+	}
+
+	activeLinks := make([]topov1alpha1.Tl, 0)
+	for _, link := range links.GetLinks() {
+		if cr.GetTopologyName() == link.GetTopologyName() {
+			// only process links with infra tag and non lag-members
+			if link.GetCondition(topov1alpha1.ConditionKindAllocationReady).Status == corev1.ConditionTrue &&
+				link.GetKind() == topov1alpha1.LinkEPKindInfra.String() {
+
+				// validate node information
+				for i := 0; i <= 1; i++ {
+					ip := getLinkParameters(i, link)
+					r.validateNode(ctx, cr, infraname, ip)
+				}
+
+				// keep track of the active epg links, for validation/garbage collection later on
+				activeLinks = append(activeLinks, link)
+
+				linkName := link.GetName()
+				if _, ok := r.infra[infraname].GetLinks()[linkName]; !ok {
+					r.infra[infraname].GetLinks()[linkName] = infra.NewLink(linkName,
+						infra.WithLinkClient(r.client),
+						infra.WithLinkLogger(r.log),
+					)
+				}
+				l := r.infra[infraname].GetLinks()[linkName]
+
+				if !link.GetLagMember() {
+					ips := make(map[string][]string)
+					for _, af := range getAddressFamilies(cr.GetAddressingScheme()) {
+						ipamOptions := &infra.IpamOptions{
+							NetworkInstance: "default",
+							AddressFamily:   af,
+						}
+						linkPrefix, err := l.ValidateIPLink(ctx, cr, link, ipamOptions)
+						if err != nil {
+							//log.Debug(errValidate, "error", err)
+							return nil, err
+						}
+
+						l.SetPrefix(af, *linkPrefix)
+
+						log.Debug("Link Prefix Allocated", "Link Name", linkName, "Prefix", *linkPrefix)
+
+						ips[af], err = parseIpPerEndPoint(*linkPrefix)
+						if err != nil {
+							return nil, err
+						}
+					}
+					subinterfaces := make([]infra.SubInterface, 2)
+					for i := 0; i <= 1; i++ {
+						ip := getLinkParameters(i, link)
+
+						//r.log.Debug("handleAppLogic2", "idx", i, "nodeName", ip.nodeName)
+						l.SetNodeName(i, ip.nodeName)
+						l.SetInterfaceName(i, ip.itfceName)
+
+						for _, af := range getAddressFamilies(cr.GetAddressingScheme()) {
+							ipamOptions := &infra.IpamOptions{
+								NetworkInstance: "default",
+								AddressFamily:   af,
+								IpPrefix:        ips[af][i],
+								EpIndex:         i,
+							}
+							if err := l.AllocateIPLinkEndpoint(ctx, cr, link, ipamOptions); err != nil {
+								return nil, err
+							}
+							epPrefix, err := l.ValidateIPLinkEndpoint(ctx, cr, link, ipamOptions)
+							if err != nil {
+								//log.Debug(errValidate, "error", err)
+								return nil, err
+							}
+							ePrefix := string(*epPrefix)
+							lPrefix := l.GetPrefix(af)
+
+							prefix, err := parseEndpointPrefix(lPrefix, ePrefix)
+							if err != nil {
+								return nil, err
+							}
+							subinterfaces[i] = r.createInfraInterface(infraname, ip, prefix, af, link.GetLag())
+						}
+					}
+					// cross reference the subinterfaces
+					subinterfaces[0].SetNeighbor(subinterfaces[1])
+					subinterfaces[1].SetNeighbor(subinterfaces[0])
+				}
+
+				if !link.GetLagMember() {
+
+				} else {
+					for i := 0; i <= 1; i++ {
+						ip := getLinkParameters(i, link)
+
+						r.createInfraLagMemberInterface(infraname, ip)
+					}
+				}
+			}
+		}
+	}
+	//log.Debug("ACtive Links", "activeLinks", activeLinks)
+	r.validateBackend(infraname, activeLinks)
+
+	return notReadyLinks, nil
+}
+
+func getAddressFamilies(addressigSchem string) []string {
+	var afs []string
+	switch addressigSchem {
+	case string(infrav1alpha1.AddressingSchemeDualStack):
+		afs = []string{string(ipamv1alpha1.AddressFamilyIpv4), string(ipamv1alpha1.AddressFamilyIpv6)}
+	case string(infrav1alpha1.AddressingSchemeIpv4Only):
+		afs = []string{string(ipamv1alpha1.AddressFamilyIpv4)}
+	case string(infrav1alpha1.AddressingSchemeIpv6Only):
+		afs = []string{string(ipamv1alpha1.AddressFamilyIpv6)}
+	}
+	return afs
+}
+
+func parseIpPerEndPoint(prefix string) ([]string, error) {
+	ips := make([]string, 0, 2)
+	p, err := netaddr.ParseIPPrefix(prefix)
+	if err != nil {
+		return nil, err
+	}
+
+	//log.Debug("Netaddr IP", "IP1", p.IP(), "IP2", p.IP().Next(), "Mask", p.Bits())
+	switch {
+	case p.Bits() == 31:
+		ips = append(ips, strings.Join([]string{p.IP().String(), "32"}, "/"))
+		ips = append(ips, strings.Join([]string{p.IP().Next().String(), "32"}, "/"))
+		return ips, nil
+	case p.Bits() == 127:
+		ips = append(ips, strings.Join([]string{p.IP().String(), "128"}, "/"))
+		ips = append(ips, strings.Join([]string{p.IP().Next().String(), "128"}, "/"))
+		return ips, nil
+	default:
+
+	}
+	return nil, err
+}
+
+func parseEndpointPrefix(linkPrefix, epPrefix string) (string, error) {
+	lp, err := netaddr.ParseIPPrefix(linkPrefix)
+	if err != nil {
+		return "", err
+	}
+	ep, err := netaddr.ParseIPPrefix(epPrefix)
+	if err != nil {
+		return "", err
+	}
+
+	return strings.Join([]string{ep.IP().String(), strconv.Itoa(int(lp.Bits()))}, "/"), nil
+}
+
+func (r *Reconciler) createInfraInterface(infraname string, ip *interfaceParameters, prefix, af string, lag bool) infra.SubInterface {
+	n := r.infra[infraname].GetNodes()[ip.nodeName]
+	if _, ok := n.GetInterfaces()[ip.itfceName]; !ok {
+		n.GetInterfaces()[ip.itfceName] = infra.NewInterface(n)
+	}
+
+	itfce := n.GetInterfaces()[ip.itfceName]
+	itfce.SetKind(infra.InterfaceKindInterface)
+	if lag {
+		itfce.SetLag()
+	}
+
+	if _, ok := itfce.GetSubInterfaces()["0"]; !ok {
+		itfce.GetSubInterfaces()["0"] = infra.NewSubInterface(itfce)
+	}
+	subitfce := itfce.GetSubInterfaces()["0"]
+	subitfce.SetKind(infra.SubInterfaceKindRouted)
+	subitfce.SetTaggingKind(infra.TaggingKindUnTagged)
+
+	if _, ok := subitfce.GetAddressesInfo(af)[prefix]; !ok {
+		subitfce.GetAddressesInfo(af)[prefix] = infra.NewAddressInfo()
+	}
+
+	return subitfce
+}
+
+func (r *Reconciler) createInfraLagMemberInterface(infraname string, ip *interfaceParameters) {
+	n := r.infra[infraname].GetNodes()[ip.nodeName]
+	if _, ok := n.GetInterfaces()[ip.nodeName]; !ok {
+		n.GetInterfaces()[ip.itfceName] = infra.NewInterface(n)
+	}
+
+	itfce := n.GetInterfaces()[ip.itfceName]
+	itfce.SetKind(infra.InterfaceKindInterface)
+	itfce.SetLagMember()
+	itfce.SetLagName(ip.lagName)
+	if ip.lacp {
+		itfce.SetLacp()
+	}
+	if ip.lacpFallback {
+		itfce.SetLacpFallback()
+	}
+}
+
+func (r *Reconciler) createNode(ctx context.Context, cr infrav1alpha1.If, infraname string, ip *interfaceParameters) error {
+	// get node from k8s api to retrieve node parameters like index for aspool
+	node := r.newTopoNode()
+	if err := r.client.Get(ctx, types.NamespacedName{
+		Namespace: cr.GetNamespace(),
+		Name:      ip.nodeName,
+	}, node); err != nil {
+		// There's no need to requeue if we no longer exist. Otherwise we'll be
+		// requeued implicitly because we return an error.
+		//log.Debug("Cannot get managed resource", "error", err)
+		return err
+	}
+
+	if _, ok := r.infra[infraname].GetNodes()[ip.nodeName]; !ok {
+		r.infra[infraname].GetNodes()[ip.nodeName] = infra.NewNode(
+			infra.WithNodeClient(r.client),
+			infra.WithNodeLogger(r.log))
+	}
+	n := r.infra[infraname].GetNodes()[ip.nodeName]
+	n.SetIndex(node.GetNodeIndex())
+	n.SetKind(node.GetKindName())
+	n.SetPlatform(node.GetPlatform())
+
+	// Allocate AS per node if the underlay protocol is ebgp
+	for _, protocol := range cr.GetUnderlayProtocol() {
+		if protocol == string(infrav1alpha1.ProtocolEBGP) {
+			_, err := n.ValidateAS(ctx, cr, node)
+			if err != nil {
+				if resource.IgnoreNotFound(err) != nil {
+					return err
+				}
+				if err := n.AllocateAS(ctx, cr, node); err != nil {
+					//log.Debug(errCreate, "error", err)
+					return err
+				}
+			}
+		}
+	}
+
+	for _, af := range getAddressFamilies(cr.GetAddressingScheme()) {
+		ipamOptions := &infra.IpamOptions{
+			NetworkInstance: "default",
+			AddressFamily:   af,
+		}
+		_, err := n.ValidateLoopbackIP(ctx, cr, node, ipamOptions)
+		if err != nil {
+			if resource.IgnoreNotFound(err) != nil {
+				return err
+			}
+			if err := n.AllocateLoopbackIP(ctx, cr, node, ipamOptions); err != nil {
+				//log.Debug(errCreate, "error", err)
+				return err
 			}
 		}
 	}
 	return nil
+}
+
+func (r *Reconciler) validateNode(ctx context.Context, cr infrav1alpha1.If, infraname string, ip *interfaceParameters) error {
+	// get node from k8s api to retrieve node parameters like index for aspool
+	node := r.newTopoNode()
+	if err := r.client.Get(ctx, types.NamespacedName{
+		Namespace: cr.GetNamespace(),
+		Name:      ip.nodeName,
+	}, node); err != nil {
+		// There's no need to requeue if we no longer exist. Otherwise we'll be
+		// requeued implicitly because we return an error.
+		//log.Debug("Cannot get managed resource", "error", err)
+		return err
+	}
+
+	if _, ok := r.infra[infraname].GetNodes()[ip.nodeName]; !ok {
+		r.infra[infraname].GetNodes()[ip.nodeName] = infra.NewNode(
+			infra.WithNodeClient(r.client),
+			infra.WithNodeLogger(r.log))
+	}
+	n := r.infra[infraname].GetNodes()[ip.nodeName]
+
+	for _, protocol := range cr.GetUnderlayProtocol() {
+		if protocol == string(infrav1alpha1.ProtocolEBGP) {
+			as, err := n.ValidateAS(ctx, cr, node)
+			if err != nil {
+				//log.Debug("error validate as allocation", "error", err)
+				return err
+			}
+			n.SetAS(*as)
+		}
+	}
+
+	for _, af := range getAddressFamilies(cr.GetAddressingScheme()) {
+		ipamOptions := &infra.IpamOptions{
+			NetworkInstance: "default",
+			AddressFamily:   af,
+		}
+		prefix, err := n.ValidateLoopbackIP(ctx, cr, node, ipamOptions)
+		if err != nil {
+			//log.Debug("error validate prefix allocation", "error", err)
+			return err
+		}
+		lpPrefix := string(*prefix)
+
+		ip.itfceName = "system"
+
+		r.createInfraInterface(infraname, ip, lpPrefix, af, false)
+	}
+
+	// we can add vxlan and irb interfaces
+	return nil
+}
+
+type interfaceParameters struct {
+	nodeName     string
+	itfceName    string
+	lagName      string
+	lag          bool
+	lagMember    bool
+	lacp         bool
+	lacpFallback bool
+	//mh           bool
+	//mhName       string
+	tags map[string]string
+}
+
+func getLinkParameters(i int, link topov1alpha1.Tl) *interfaceParameters {
+	switch i {
+	case 0:
+		ip := &interfaceParameters{
+			nodeName:     link.GetEndpointANodeName(),
+			itfceName:    link.GetEndpointAInterfaceName(),
+			lagName:      link.GetLagAName(),
+			lag:          link.GetLag(),
+			lagMember:    link.GetLagMember(),
+			lacp:         link.GetLacp(),
+			lacpFallback: link.GetLacpFallbackA(),
+			//mh:           link.GetEndPointAMultiHoming(),
+			//mhName:       link.GetEndPointAMultiHomingName(),
+			tags: link.GetEndpointATag(),
+		}
+		return ip
+	case 1:
+		ip := &interfaceParameters{
+			nodeName:     link.GetEndpointBNodeName(),
+			itfceName:    link.GetEndpointBInterfaceName(),
+			lagName:      link.GetLagBName(),
+			lag:          link.GetLag(),
+			lagMember:    link.GetLagMember(),
+			lacp:         link.GetLacp(),
+			lacpFallback: link.GetLacpFallbackB(),
+			//mh:           link.GetEndPointBMultiHoming(),
+			//mhName:       link.GetEndPointBMultiHomingName(),
+			tags: link.GetEndpointATag(),
+		}
+		return ip
+	}
+	return &interfaceParameters{}
+
+}
+
+func (r *Reconciler) validateBackend(infraname string, activeLinks []topov1alpha1.Tl) {
+	// update the backend based on the active links processed
+	// validate the existing backend and update the information
+	activeNodes := make(map[string]bool)
+	for linkName, link := range r.infra[infraname].GetLinks() {
+		found := false
+		for _, activeLink := range activeLinks {
+			if linkName == activeLink.GetName() {
+				activeNodes[link.GetNodeName(0)] = true
+				activeNodes[link.GetNodeName(1)] = true
+				found = true
+				break
+			}
+		}
+		// not found -> delete from backend if it exists
+		if !found {
+			// delete interface from node
+			for idx, nodeName := range link.GetNodeNames() {
+				if node, ok := r.infra[infraname].GetNodes()[nodeName]; ok {
+					delete(node.GetInterfaces(), link.GetInterfaceNames()[idx])
+				}
+			}
+
+		}
+	}
+	r.log.Debug("Active Nodes", "activeNodes", activeNodes)
+	for nodeName := range r.infra[infraname].GetNodes() {
+		found := false
+		for activeNodeName := range activeNodes {
+			if nodeName == activeNodeName {
+				found = true
+				break
+			}
+		}
+		if !found {
+			// delete node from backend
+			delete(r.infra[infraname].GetNodes(), nodeName)
+		}
+	}
+
 }

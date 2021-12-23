@@ -41,10 +41,26 @@ const (
 // allocation per network instance -> tbd how we indentify this
 // puprose, loopback need to be identified -> best in ipam
 
-func buildIpamAllocLoopback(cr infrav1alpha1.If, x topov1alpha1.Tn) *ipamv1alpha1.Alloc {
+type IpamOptions struct {
+	NetworkInstance string
+	AddressFamily   string
+	IpPrefix        string
+	EpIndex         int
+}
+
+func buildIpamAllocLoopback(cr infrav1alpha1.If, x topov1alpha1.Tn, ipamOptions *IpamOptions) *ipamv1alpha1.Alloc {
+	/*
+		var prefixlength uint32
+		if ipamOptions.AddressFamily == string(ipamv1alpha1.AddressFamilyIpv4) {
+			prefixlength = 32
+		}
+		if ipamOptions.AddressFamily == string(ipamv1alpha1.AddressFamilyIpv6) {
+			prefixlength = 128
+		}
+	*/
 	return &ipamv1alpha1.Alloc{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      strings.Join([]string{allocIpamPrefix, cr.GetName(), x.GetName()}, "-"),
+			Name:      strings.Join([]string{allocIpamPrefix, cr.GetName(), x.GetName(), ipamOptions.AddressFamily}, "-"),
 			Namespace: cr.GetNamespace(),
 			Labels: map[string]string{
 				labelPrefix: strings.Join([]string{allocIpamPrefix, cr.GetName(), x.GetName()}, "-"),
@@ -53,12 +69,13 @@ func buildIpamAllocLoopback(cr infrav1alpha1.If, x topov1alpha1.Tn) *ipamv1alpha
 		},
 		Spec: ipamv1alpha1.AllocSpec{
 			IpamName:            utils.StringPtr(cr.GetLoopbackIpamPool()),
-			NetworkInstanceName: utils.StringPtr("default"),
+			NetworkInstanceName: utils.StringPtr(ipamOptions.NetworkInstance),
 			Alloc: &ipamv1alpha1.IpamAlloc{
-				AddressFamily: utils.StringPtr("ipv4"),
-				PrefixLength:  utils.Uint32Ptr(32),
+				//AddressFamily: utils.StringPtr(ipamOptions.AddressFamily),
+				//PrefixLength: utils.Uint32Ptr(prefixlength),
 				Selector: []*ipamv1alpha1.IpamAllocSelectorTag{
-					{Key: utils.StringPtr("purpose"), Value: utils.StringPtr("loopback")},
+					{Key: utils.StringPtr(ipamv1alpha1.KeyAddressFamily), Value: utils.StringPtr(ipamOptions.AddressFamily)},
+					{Key: utils.StringPtr(ipamv1alpha1.KeyPurpose), Value: utils.StringPtr(ipamv1alpha1.PurposeLoopback.String())},
 				},
 				SourceTag: []*ipamv1alpha1.IpamAllocSourceTagTag{
 					{Key: utils.StringPtr(topov1alpha1.KeyNode), Value: utils.StringPtr(x.GetName())},
@@ -73,10 +90,19 @@ func buildIpamAllocLoopback(cr infrav1alpha1.If, x topov1alpha1.Tn) *ipamv1alpha
 // allocation per network instance -> tbd how we indentify this
 // puprose, isl need to be identified -> best in ipam
 
-func buildIpamAllocLink(cr infrav1alpha1.If, x topov1alpha1.Tl) *ipamv1alpha1.Alloc {
+func buildIpamAllocLink(cr infrav1alpha1.If, x topov1alpha1.Tl, ipamOptions *IpamOptions) *ipamv1alpha1.Alloc {
+	/*
+		var prefixlength uint32
+		if ipamOptions.AddressFamily == string(ipamv1alpha1.AddressFamilyIpv4) {
+			prefixlength = 31
+		}
+		if ipamOptions.AddressFamily == string(ipamv1alpha1.AddressFamilyIpv6) {
+			prefixlength = 127
+		}
+	*/
 	return &ipamv1alpha1.Alloc{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      strings.Join([]string{allocIpamPrefix, cr.GetName(), x.GetName()}, "-"),
+			Name:      strings.Join([]string{allocIpamPrefix, cr.GetName(), x.GetName(), ipamOptions.AddressFamily}, "-"),
 			Namespace: cr.GetNamespace(),
 			Labels: map[string]string{
 				labelPrefix: strings.Join([]string{allocIpamPrefix, cr.GetName(), x.GetName()}, "-"),
@@ -85,15 +111,59 @@ func buildIpamAllocLink(cr infrav1alpha1.If, x topov1alpha1.Tl) *ipamv1alpha1.Al
 		},
 		Spec: ipamv1alpha1.AllocSpec{
 			IpamName:            utils.StringPtr(cr.GetLoopbackIpamPool()),
-			NetworkInstanceName: utils.StringPtr("default"),
+			NetworkInstanceName: utils.StringPtr(ipamOptions.NetworkInstance),
 			Alloc: &ipamv1alpha1.IpamAlloc{
-				AddressFamily: utils.StringPtr("ipv4"),
-				PrefixLength:  utils.Uint32Ptr(31),
+				//AddressFamily: utils.StringPtr(ipamOptions.AddressFamily),
+				//PrefixLength: utils.Uint32Ptr(prefixlength),
 				Selector: []*ipamv1alpha1.IpamAllocSelectorTag{
-					{Key: utils.StringPtr("purpose"), Value: utils.StringPtr("isl")},
+					{Key: utils.StringPtr(ipamv1alpha1.KeyAddressFamily), Value: utils.StringPtr(ipamOptions.AddressFamily)},
+					{Key: utils.StringPtr(ipamv1alpha1.KeyPurpose), Value: utils.StringPtr(ipamv1alpha1.PurposeIsl.String())},
 				},
 				SourceTag: []*ipamv1alpha1.IpamAllocSourceTagTag{
-					{Key: utils.StringPtr(topov1alpha1.KeyNode), Value: utils.StringPtr(x.GetName())},
+					{Key: utils.StringPtr(x.GetEndpointANodeName()), Value: utils.StringPtr(x.GetEndpointAInterfaceName())},
+					{Key: utils.StringPtr(x.GetEndpointBNodeName()), Value: utils.StringPtr(x.GetEndpointBInterfaceName())},
+				},
+			},
+		},
+	}
+}
+
+func buildIpamAllocEndPoint(cr infrav1alpha1.If, x topov1alpha1.Tl, ipamOptions *IpamOptions) *ipamv1alpha1.Alloc {
+	var (
+		nodeName  string
+		itfcename string
+	)
+	if ipamOptions.EpIndex == 0 {
+		nodeName = x.GetEndpointANodeName()
+		itfcename = x.GetEndpointAInterfaceName()
+	} else {
+		nodeName = x.GetEndpointBNodeName()
+		itfcename = x.GetEndpointBInterfaceName()
+	}
+	return &ipamv1alpha1.Alloc{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      strings.Join([]string{allocIpamPrefix, cr.GetName(), x.GetName(), nodeName, ipamOptions.AddressFamily}, "-"),
+			Namespace: cr.GetNamespace(),
+			Labels:    map[string]string{
+				//labelPrefix: strings.Join([]string{allocIpamPrefix, cr.GetName(), x.GetName(), nodeName}, "-"),
+			},
+			OwnerReferences: []metav1.OwnerReference{meta.AsController(meta.TypedReferenceTo(cr, infrav1alpha1.InfrastructureGroupVersionKind))},
+		},
+		Spec: ipamv1alpha1.AllocSpec{
+			IpamName:            utils.StringPtr(cr.GetLoopbackIpamPool()),
+			NetworkInstanceName: utils.StringPtr(ipamOptions.NetworkInstance),
+			Alloc: &ipamv1alpha1.IpamAlloc{
+				//AddressFamily: utils.StringPtr(ipamOptions.AddressFamily),
+				IpPrefix: utils.StringPtr(ipamOptions.IpPrefix),
+				Selector: []*ipamv1alpha1.IpamAllocSelectorTag{
+					{Key: utils.StringPtr(ipamv1alpha1.KeyAddressFamily), Value: utils.StringPtr(ipamOptions.AddressFamily)},
+					{Key: utils.StringPtr(ipamv1alpha1.KeyPurpose), Value: utils.StringPtr(ipamv1alpha1.PurposeIsl.String())},
+					{Key: utils.StringPtr(x.GetEndpointANodeName()), Value: utils.StringPtr(x.GetEndpointAInterfaceName())},
+					{Key: utils.StringPtr(x.GetEndpointBNodeName()), Value: utils.StringPtr(x.GetEndpointBInterfaceName())},
+				},
+				SourceTag: []*ipamv1alpha1.IpamAllocSourceTagTag{
+					{Key: utils.StringPtr(topov1alpha1.KeyNode), Value: utils.StringPtr(nodeName)},
+					{Key: utils.StringPtr(topov1alpha1.KeyInterface), Value: utils.StringPtr(itfcename)},
 				},
 			},
 		},

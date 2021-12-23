@@ -16,6 +16,10 @@ limitations under the License.
 package infra
 
 import (
+	"fmt"
+	"reflect"
+	"strings"
+
 	"github.com/yndd/ndd-runtime/pkg/logging"
 	"github.com/yndd/ndd-runtime/pkg/resource"
 )
@@ -54,6 +58,7 @@ type AddressInfo interface {
 	SetPrefix(string)
 	SetAddress(string)
 	SetPrefixLength(uint32)
+	Print(string, string, int)
 }
 
 type addressInfo struct {
@@ -66,14 +71,23 @@ type addressInfo struct {
 }
 
 func (x *addressInfo) GetPrefix() string {
+	if reflect.ValueOf(x.prefix).IsZero() {
+		return ""
+	}
 	return *x.prefix
 }
 
 func (x *addressInfo) GetAddress() string {
+	if reflect.ValueOf(x.address).IsZero() {
+		return ""
+	}
 	return *x.address
 }
 
 func (x *addressInfo) GetPrefixLength() uint32 {
+	if reflect.ValueOf(x.prefixLength).IsZero() {
+		return 0
+	}
 	return *x.prefixLength
 }
 
@@ -87,4 +101,8 @@ func (x *addressInfo) SetAddress(s string) {
 
 func (x *addressInfo) SetPrefixLength(s uint32) {
 	x.prefixLength = &s
+}
+
+func (x *addressInfo) Print(af, prefix string, n int) {
+	fmt.Printf("%s Address IP Prefix %s: %s\n", strings.Repeat(" ", n), af, prefix)
 }

@@ -16,6 +16,10 @@ limitations under the License.
 package infra
 
 import (
+	"fmt"
+	"reflect"
+	"strings"
+
 	"github.com/yndd/ndd-runtime/pkg/logging"
 	"github.com/yndd/ndd-runtime/pkg/resource"
 	"github.com/yndd/ndd-runtime/pkg/utils"
@@ -39,7 +43,7 @@ func WithInterfaceClient(c resource.ClientApplicator) InterfaceOption {
 func NewInterface(n Node, opts ...InterfaceOption) Interface {
 	i := &itfce{
 		node:          n,
-		subInterfaces: make([]SubInterface, 0),
+		subInterfaces: make(map[string]SubInterface),
 	}
 
 	for _, f := range opts {
@@ -57,20 +61,22 @@ type Interface interface {
 	GetKind() string
 	IsLag() bool
 	IsLagMember() bool
+	IsLacp() bool
+	IsLacpFallback() bool
 	GetLagName() string
 	SetNode(Node)
 	SetName(string)
 	SetKind(InterfaceKind)
 	SetLag()
 	SetLagMember()
+	SetLacp()
+	SetLacpFallback()
 	SetLagName(string)
 	GetLagMembers() []Interface
 	GetLagMemberNames() []string
 	HasVlanTags() bool
-	GetSubInterfaces() []SubInterface
-	GetSubInterface(string) SubInterface
-	AddSubInterface(SubInterface)
-	DeleteSubInterface(SubInterface)
+	GetSubInterfaces() map[string]SubInterface
+	Print(string, int)
 }
 
 type itfce struct {
@@ -83,7 +89,9 @@ type itfce struct {
 	lag           *bool
 	lagMember     *bool
 	lagName       *string
-	subInterfaces []SubInterface
+	lacp          *bool
+	lacpFallback  *bool
+	subInterfaces map[string]SubInterface
 }
 
 func (x *itfce) GetNode() Node {
@@ -91,22 +99,48 @@ func (x *itfce) GetNode() Node {
 }
 
 func (x *itfce) GetName() string {
+	if reflect.ValueOf(x.name).IsZero() {
+		return ""
+	}
 	return *x.name
 }
 
 func (x *itfce) GetKind() string {
-	return x.kind.String()
+	return string(x.kind)
 }
 
 func (x *itfce) IsLag() bool {
+	if reflect.ValueOf(x.lag).IsZero() {
+		return false
+	}
 	return *x.lag
 }
 
 func (x *itfce) IsLagMember() bool {
+	if reflect.ValueOf(x.lagMember).IsZero() {
+		return false
+	}
 	return *x.lagMember
 }
 
+func (x *itfce) IsLacp() bool {
+	if reflect.ValueOf(x.lacp).IsZero() {
+		return false
+	}
+	return *x.lacp
+}
+
+func (x *itfce) IsLacpFallback() bool {
+	if reflect.ValueOf(x.lacpFallback).IsZero() {
+		return false
+	}
+	return *x.lacpFallback
+}
+
 func (x *itfce) GetLagName() string {
+	if reflect.ValueOf(x.lagName).IsZero() {
+		return ""
+	}
 	return *x.lagName
 }
 
@@ -128,6 +162,14 @@ func (x *itfce) SetLag() {
 
 func (x *itfce) SetLagMember() {
 	x.lagMember = utils.BoolPtr(true)
+}
+
+func (x *itfce) SetLacp() {
+	x.lacp = utils.BoolPtr(true)
+}
+
+func (x *itfce) SetLacpFallback() {
+	x.lacpFallback = utils.BoolPtr(true)
 }
 
 func (x *itfce) SetLagName(n string) {
@@ -158,55 +200,8 @@ func (x *itfce) GetLagMemberNames() []string {
 	return is
 }
 
-func (x *itfce) GetSubInterfaces() []SubInterface {
+func (x *itfce) GetSubInterfaces() map[string]SubInterface {
 	return x.subInterfaces
-}
-
-func (x *itfce) GetSubInterface(n string) SubInterface {
-	for _, i := range x.subInterfaces {
-		if i.GetName() == n {
-			return i
-		}
-	}
-	return nil
-}
-
-func (x *itfce) AddSubInterface(n SubInterface) {
-	for _, i := range x.subInterfaces {
-		if i.GetName() == n.GetName() {
-			i = n
-			return
-		}
-	}
-	x.subInterfaces = append(x.subInterfaces, n)
-}
-
-func (x *itfce) DeleteSubInterface(n SubInterface) {
-	found := false
-	idx := 0
-	for i, si := range x.subInterfaces {
-		if si.GetName() == n.GetName() {
-			idx = i
-			found = true
-		}
-	}
-	if found {
-		x.subInterfaces = append(append(x.subInterfaces[:idx], x.subInterfaces[idx+1:]...))
-	}
-}
-
-func (x *itfce) DeleteInterface(n SubInterface) {
-	found := false
-	idx := 0
-	for i, si := range x.subInterfaces {
-		if si.GetName() == n.GetName() {
-			idx = i
-			found = true
-		}
-	}
-	if found {
-		x.subInterfaces = append(append(x.subInterfaces[:idx], x.subInterfaces[idx+1:]...))
-	}
 }
 
 func (x *itfce) HasVlanTags() bool {
@@ -214,6 +209,14 @@ func (x *itfce) HasVlanTags() bool {
 	//
 	//}
 	return false
+}
+
+func (x *itfce) Print(itfceName string, n int) {
+	fmt.Printf("%s Interface: %s Kind: %s LAG: %t, LAG Member: %t\n", strings.Repeat(" ", n), itfceName, x.GetKind(), x.IsLag(), x.IsLagMember())
+	n++
+	for subItfceName, i := range x.subInterfaces {
+		i.Print(subItfceName, n)
+	}
 }
 
 type InterfaceKind string

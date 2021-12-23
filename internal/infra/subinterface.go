@@ -16,8 +16,13 @@ limitations under the License.
 package infra
 
 import (
+	"fmt"
+	"reflect"
+	"strings"
+
 	"github.com/yndd/ndd-runtime/pkg/logging"
 	"github.com/yndd/ndd-runtime/pkg/resource"
+	ipamv1alpha1 "github.com/yndd/nddr-ipam/apis/ipam/v1alpha1"
 )
 
 // InfraOption is used to configure the Infra.
@@ -38,8 +43,8 @@ func WithSubInterfaceClient(c resource.ClientApplicator) SubInterfaceOption {
 func NewSubInterface(itfce Interface, opts ...SubInterfaceOption) SubInterface {
 	i := &subInterface{
 		itfce: itfce,
-		ipv4:  make([]AddressInfo, 0),
-		ipv6:  make([]AddressInfo, 0),
+		ipv4:  make(map[string]AddressInfo),
+		ipv6:  make(map[string]AddressInfo),
 	}
 
 	for _, f := range opts {
@@ -65,14 +70,8 @@ type SubInterface interface {
 	SetKind(SubInterfaceKind)
 	SetOuterTag(uint32)
 	SetInnerTag(uint32)
-	GetIpv4AddressesInfo() []AddressInfo
-	GetIpv6AddressesInfo() []AddressInfo
-	GetIpv4AddressInfo(n string) AddressInfo
-	GetIpv6AddressInfo(n string) AddressInfo
-	AddIpv4AddressInfo(n AddressInfo)
-	AddIpv6AddressInfo(n AddressInfo)
-	DeleteIpv4AddressInfo(n AddressInfo)
-	DeleteIpv6AddressInfo(n AddressInfo)
+	GetAddressesInfo(af string) map[string]AddressInfo
+	Print(string, int)
 }
 
 type subInterface struct {
@@ -85,9 +84,9 @@ type subInterface struct {
 	tagging  TaggingKind
 	kind     SubInterfaceKind
 	outerTag *uint32
-	innertag *uint32
-	ipv4     []AddressInfo
-	ipv6     []AddressInfo
+	innerTag *uint32
+	ipv4     map[string]AddressInfo
+	ipv6     map[string]AddressInfo
 }
 
 func (x *subInterface) GetInterface() Interface {
@@ -95,6 +94,9 @@ func (x *subInterface) GetInterface() Interface {
 }
 
 func (x *subInterface) GetName() string {
+	if reflect.ValueOf(x.name).IsZero() {
+		return ""
+	}
 	return *x.name
 }
 
@@ -107,15 +109,21 @@ func (x *subInterface) GetTaggingKind() string {
 }
 
 func (x *subInterface) GetKind() string {
-	return string(x.tagging)
+	return string(x.kind)
 }
 
 func (x *subInterface) GetOuterTag() uint32 {
+	if reflect.ValueOf(x.outerTag).IsZero() {
+		return 0
+	}
 	return *x.outerTag
 }
 
 func (x *subInterface) GetInnerTag() uint32 {
-	return *x.innertag
+	if reflect.ValueOf(x.innerTag).IsZero() {
+		return 0
+	}
+	return *x.innerTag
 }
 
 func (x *subInterface) SetInterface(i Interface) {
@@ -139,84 +147,45 @@ func (x *subInterface) SetKind(n SubInterfaceKind) {
 }
 
 func (x *subInterface) SetInnerTag(t uint32) {
-	x.innertag = &t
+	x.innerTag = &t
 }
 
 func (x *subInterface) SetOuterTag(t uint32) {
 	x.outerTag = &t
 }
 
-func (x *subInterface) GetIpv4AddressesInfo() []AddressInfo {
-	return x.ipv4
-}
-
-func (x *subInterface) GetIpv6AddressesInfo() []AddressInfo {
-	return x.ipv4
-}
-
-func (x *subInterface) GetIpv4AddressInfo(n string) AddressInfo {
-	for _, a := range x.ipv4 {
-		if a.GetPrefix() == n {
-			return a
-		}
+func (x *subInterface) GetAddressesInfo(af string) map[string]AddressInfo {
+	switch af {
+	case string(ipamv1alpha1.AddressFamilyIpv4):
+		return x.ipv4
+	case string(ipamv1alpha1.AddressFamilyIpv6):
+		return x.ipv6
 	}
 	return nil
 }
 
-func (x *subInterface) GetIpv6AddressInfo(n string) AddressInfo {
-	for _, a := range x.ipv6 {
-		if a.GetPrefix() == n {
-			return a
-		}
-	}
-	return nil
+func (x *subInterface) GetIpv6AddressesInfo() map[string]AddressInfo {
+	return x.ipv6
 }
 
-func (x *subInterface) AddIpv4AddressInfo(n AddressInfo) {
-	for _, a := range x.ipv4 {
-		if a.GetPrefix() == n.GetPrefix() {
-			a = n
-			return
+func (x *subInterface) Print(subItfceName string, n int) {
+	fmt.Printf("%s SubInterface: %s Kind: %s Tagging: %s\n", strings.Repeat(" ", n), subItfceName, x.GetKind(), x.GetTaggingKind())
+	n++
+	fmt.Printf("%s Local Addressing Info\n", strings.Repeat(" ", n))
+	for prefix, i := range x.ipv4 {
+		i.Print(string(ipamv1alpha1.AddressFamilyIpv4), prefix, n)
+	}
+	for prefix, i := range x.ipv6 {
+		i.Print(string(ipamv1alpha1.AddressFamilyIpv6), prefix, n)
+	}
+	if x.neighbor != nil {
+		fmt.Printf("%s Neighbor Addressing Info\n", strings.Repeat(" ", n))
+		for prefix, i := range x.neighbor.GetAddressesInfo(string(ipamv1alpha1.AddressFamilyIpv4)) {
+			i.Print(string(ipamv1alpha1.AddressFamilyIpv4), prefix, n)
 		}
-	}
-	x.ipv4 = append(x.ipv4, n)
-}
-
-func (x *subInterface) AddIpv6AddressInfo(n AddressInfo) {
-	for _, a := range x.ipv6 {
-		if a.GetPrefix() == n.GetPrefix() {
-			a = n
-			return
+		for prefix, i := range x.neighbor.GetAddressesInfo(string(ipamv1alpha1.AddressFamilyIpv6)) {
+			i.Print(string(ipamv1alpha1.AddressFamilyIpv6), prefix, n)
 		}
-	}
-	x.ipv4 = append(x.ipv6, n)
-}
-
-func (x *subInterface) DeleteIpv4AddressInfo(n AddressInfo) {
-	found := false
-	idx := 0
-	for i, a := range x.ipv4 {
-		if a.GetPrefix() == n.GetPrefix() {
-			idx = i
-			found = true
-		}
-	}
-	if found {
-		x.ipv4 = append(append(x.ipv4[:idx], x.ipv4[idx+1:]...))
-	}
-}
-
-func (x *subInterface) DeleteIpv6AddressInfo(n AddressInfo) {
-	found := false
-	idx := 0
-	for i, a := range x.ipv6 {
-		if a.GetPrefix() == n.GetPrefix() {
-			idx = i
-			found = true
-		}
-	}
-	if found {
-		x.ipv6 = append(append(x.ipv6[:idx], x.ipv6[idx+1:]...))
 	}
 }
 

@@ -18,6 +18,7 @@ package infra
 
 import (
 	"context"
+	"strings"
 
 	//ndddvrv1 "github.com/yndd/ndd-core/apis/dvr/v1"
 	"github.com/yndd/ndd-runtime/pkg/logging"
@@ -39,6 +40,8 @@ type EnqueueRequestForAllTopologies struct {
 	client client.Client
 	log    logging.Logger
 	ctx    context.Context
+
+	speedy map[string]int
 }
 
 // Create enqueues a request for all infrastructures which pertains to the topology.
@@ -78,36 +81,13 @@ func (e *EnqueueRequestForAllTopologies) add(obj runtime.Object, queue adder) {
 	for _, infra := range d.Items {
 		// only enqueue if the topology name match
 		if infra.GetTopologyName() == dd.GetName() {
-			queue.Add(reconcile.Request{NamespacedName: types.NamespacedName{Name: infra.GetName()}})
+
+			infraname := strings.Join([]string{dd.GetNamespace(), infra.GetName()}, "/")
+			e.speedy[infraname] = 0
+
+			queue.Add(reconcile.Request{NamespacedName: types.NamespacedName{
+				Namespace: dd.GetNamespace(),
+				Name:      infra.GetName()}})
 		}
 	}
 }
-
-/*
-topoHandler := &EnqueueRequestForAllTopologies{
-		client: mgr.GetClient(),
-		log:    nddcopts.Logger,
-	}
-
-	topoNodeHandler := &EnqueueRequestForAllTopologyNodes{
-		client: mgr.GetClient(),
-		log:    nddcopts.Logger,
-	}
-
-	topoLinkHandler := &EnqueueRequestForAllTopologyLinks{
-		client: mgr.GetClient(),
-		log:    nddcopts.Logger,
-	}
-
-	return infrav1alpha1.InfrastructureGroupKind, events, ctrl.NewControllerManagedBy(mgr).
-		Named(name).
-		WithOptions(o).
-		For(&infrav1alpha1.InfraInfrastructure{}).
-		WithEventFilter(resource.IgnoreUpdateWithoutGenerationChangePredicate()).
-		Watches(&source.Kind{Type: &topov1alpha1.TopoTopology{}}, topoHandler).
-		Watches(&source.Kind{Type: &topov1alpha1.TopoTopologyNode{}}, topoNodeHandler).
-		Watches(&source.Kind{Type: &topov1alpha1.TopoTopologyLink{}}, topoLinkHandler).
-		Watches(&source.Channel{Source: events}, &handler.EnqueueRequestForObject{}).
-		Complete(r)
-
-*/
