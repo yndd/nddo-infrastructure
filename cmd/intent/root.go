@@ -27,9 +27,12 @@ import (
 
 	//ndrv1 "github.com/yndd/ndd-core/apis/dvr/v1"
 	//infrav1alpha1 "github.com/yndd/nddo-infrastructure/apis/infra/v1alpha1"
+	networkv1alpha1 "github.com/yndd/ndda-network/apis/network/v1alpha1"
 	infrav1alpha1 "github.com/yndd/nddo-infrastructure/apis/infra/v1alpha1"
 	aspoolv1alpha1 "github.com/yndd/nddr-as-pool/apis/aspool/v1alpha1"
 	ipamv1alpha1 "github.com/yndd/nddr-ipam/apis/ipam/v1alpha1"
+	nipoolv1alpha1 "github.com/yndd/nddr-ni-pool/apis/nipool/v1alpha1"
+	orgv1alpha1 "github.com/yndd/nddr-organization/apis/org/v1alpha1"
 	topov1alpha1 "github.com/yndd/nddr-topology/apis/topo/v1alpha1"
 	//apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	//+kubebuilder:scaffold:imports
@@ -61,10 +64,14 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&debug, "debug", "d", false, "enable debug mode")
 
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	utilruntime.Must(orgv1alpha1.AddToScheme(scheme))
 	utilruntime.Must(infrav1alpha1.AddToScheme(scheme))
 	utilruntime.Must(topov1alpha1.AddToScheme(scheme))
 	utilruntime.Must(aspoolv1alpha1.AddToScheme(scheme))
 	utilruntime.Must(ipamv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(networkv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(nipoolv1alpha1.AddToScheme(scheme))
+
 	//utilruntime.Must(apiextensionsv1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
 }

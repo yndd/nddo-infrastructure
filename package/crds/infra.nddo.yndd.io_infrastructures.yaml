@@ -16,7 +16,35 @@ spec:
     singular: infrastructure
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .status.conditions[?(@.kind=='Synced')].status
+      name: SYNC
+      type: string
+    - jsonPath: .status.conditions[?(@.kind=='Ready')].status
+      name: STATUS
+      type: string
+    - jsonPath: .status.organization-name
+      name: ORG
+      type: string
+    - jsonPath: .status.deployment-name
+      name: DEPL
+      type: string
+    - jsonPath: .status.network-instance-name
+      name: NI
+      type: string
+    - jsonPath: .spec.infrastructure.addressing-scheme
+      name: ADDR
+      type: string
+    - jsonPath: .spec.infrastructure.underlay-protocol[0]
+      name: UNDERLAY
+      type: string
+    - jsonPath: .spec.infrastructure.overlay-protocol[0]
+      name: OVERLAY
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: AGE
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: InfraInfrastructure is the Schema for the Infrastructure API
@@ -55,24 +83,37 @@ spec:
                     description: kubebuilder:validation:MinLength=1 kubebuilder:validation:MaxLength=255
                     pattern: '[A-Za-z0-9 !@#$^&()|+=`~.,''/_:;?-]*'
                     type: string
-                  interface-tag-pool:
-                    type: string
-                  isl-ipam-pool:
-                    type: string
-                  loopback-ipam-pool:
-                    type: string
-                  overlay-as-pool:
-                    type: string
+                  interface-selector:
+                    items:
+                      properties:
+                        ipv4-prefixes:
+                          items:
+                            type: string
+                          type: array
+                        ipv6-prefixes:
+                          items:
+                            type: string
+                          type: array
+                        tag:
+                          items:
+                            properties:
+                              key:
+                                type: string
+                              value:
+                                type: string
+                            type: object
+                          type: array
+                        vlan:
+                          format: int32
+                          type: integer
+                      type: object
+                    type: array
                   overlay-protocol:
                     items:
                       type: string
                     maxItems: 16
                     minItems: 1
                     type: array
-                  topology-name:
-                    type: string
-                  underlay-as-pool:
-                    type: string
                   underlay-protocol:
                     items:
                       type: string
@@ -118,15 +159,8 @@ spec:
                   - status
                   type: object
                 type: array
-              controllerRef:
-                description: A Reference to a named object.
-                properties:
-                  name:
-                    description: Name of the referenced object.
-                    type: string
-                required:
-                - name
-                type: object
+              deployment-name:
+                type: string
               infrastructure:
                 description: NddoinfrastructureInfrastructure struct
                 properties:
@@ -135,14 +169,6 @@ spec:
                   admin-state:
                     type: string
                   description:
-                    type: string
-                  interface-tag-pool:
-                    type: string
-                  isl-ipam-pool:
-                    type: string
-                  loopback-ipam-pool:
-                    type: string
-                  overlay-as-pool:
                     type: string
                   overlay-protocol:
                     items:
@@ -190,10 +216,6 @@ spec:
                       status:
                         type: string
                     type: object
-                  topology-name:
-                    type: string
-                  underlay-as-pool:
-                    type: string
                   underlay-protocol:
                     items:
                       type: string
@@ -201,6 +223,10 @@ spec:
                     minItems: 1
                     type: array
                 type: object
+              network-instance-name:
+                type: string
+              organization-name:
+                type: string
             type: object
         type: object
     served: true

@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package infra
+package infra2
 
 import (
 	"context"
@@ -33,54 +33,52 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
-type adder interface {
-	Add(item interface{})
-}
-
-type EnqueueRequestForAllTopologies struct {
+type EnqueueRequestForAllTopologyLinks struct {
 	client client.Client
 	log    logging.Logger
 	ctx    context.Context
 
 	speedy map[string]int
 	mutex  sync.Mutex
+
+	newInfraList func() infrav1alpha1.IfList
 }
 
 // Create enqueues a request for all infrastructures which pertains to the topology.
-func (e *EnqueueRequestForAllTopologies) Create(evt event.CreateEvent, q workqueue.RateLimitingInterface) {
+func (e *EnqueueRequestForAllTopologyLinks) Create(evt event.CreateEvent, q workqueue.RateLimitingInterface) {
 	e.add(evt.Object, q)
 }
 
 // Create enqueues a request for all infrastructures which pertains to the topology.
-func (e *EnqueueRequestForAllTopologies) Update(evt event.UpdateEvent, q workqueue.RateLimitingInterface) {
+func (e *EnqueueRequestForAllTopologyLinks) Update(evt event.UpdateEvent, q workqueue.RateLimitingInterface) {
 	e.add(evt.ObjectOld, q)
 	e.add(evt.ObjectNew, q)
 }
 
 // Create enqueues a request for all infrastructures which pertains to the topology.
-func (e *EnqueueRequestForAllTopologies) Delete(evt event.DeleteEvent, q workqueue.RateLimitingInterface) {
+func (e *EnqueueRequestForAllTopologyLinks) Delete(evt event.DeleteEvent, q workqueue.RateLimitingInterface) {
 	e.add(evt.Object, q)
 }
 
 // Create enqueues a request for all infrastructures which pertains to the topology.
-func (e *EnqueueRequestForAllTopologies) Generic(evt event.GenericEvent, q workqueue.RateLimitingInterface) {
+func (e *EnqueueRequestForAllTopologyLinks) Generic(evt event.GenericEvent, q workqueue.RateLimitingInterface) {
 	e.add(evt.Object, q)
 }
 
-func (e *EnqueueRequestForAllTopologies) add(obj runtime.Object, queue adder) {
-	dd, ok := obj.(*topov1alpha1.Topology)
+func (e *EnqueueRequestForAllTopologyLinks) add(obj runtime.Object, queue adder) {
+	dd, ok := obj.(*topov1alpha1.TopologyLink)
 	if !ok {
 		return
 	}
-	log := e.log.WithValues("function", "watch topo", "name", dd.GetName())
+	log := e.log.WithValues("function", "watch topolink", "name", dd.GetName())
 	log.Debug("infra handleEvent")
 
-	d := &infrav1alpha1.InfrastructureList{}
+	d := e.newInfraList()
 	if err := e.client.List(e.ctx, d); err != nil {
 		return
 	}
 
-	for _, infra := range d.Items {
+	for _, infra := range d.GetInfrastructures() {
 		deploymentName := strings.Join([]string{infra.GetOrganizationName(), infra.GetDeploymentName()}, ".")
 		// only enqueue if the topology name match
 		if strings.Contains(dd.GetName(), deploymentName) {
@@ -93,7 +91,7 @@ func (e *EnqueueRequestForAllTopologies) add(obj runtime.Object, queue adder) {
 
 			queue.Add(reconcile.Request{NamespacedName: types.NamespacedName{
 				Namespace: dd.GetNamespace(),
-				Name:      crname}})
+				Name:      infra.GetName()}})
 		}
 	}
 }

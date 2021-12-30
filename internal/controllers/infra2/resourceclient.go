@@ -14,25 +14,28 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package controllers
+package infra2
 
 import (
-	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"context"
 
-	"github.com/yndd/nddo-infrastructure/internal/controllers/infra2"
-	"github.com/yndd/nddo-infrastructure/internal/shared"
+	"github.com/yndd/nddo-grpc/ndd"
+	"github.com/yndd/nddo-grpc/resource/client"
+	"github.com/yndd/nddo-grpc/resource/resourcepb"
 )
 
-// Setup package controllers.
-func Setup(mgr ctrl.Manager, option controller.Options, nddcopts *shared.NddControllerOptions) error {
-	for _, setup := range []func(ctrl.Manager, controller.Options, *shared.NddControllerOptions) error{
-		infra2.Setup,
-	} {
-		if err := setup(mgr, option, nddcopts); err != nil {
-			return err
-		}
+func getResourceClient(ctx context.Context, grpcserver string) (resourcepb.ResourceClient, error) {
+	cfg := &ndd.Config{
+		Address:  grpcserver,
+		Username: "admin",
+		Password: "admin",
+		//Timeout:    10 * time.Second,
+		SkipVerify: true,
+		Insecure:   true,
+		TLSCA:      "", //TODO TLS
+		TLSCert:    "",
+		TLSKey:     "",
 	}
 
-	return nil
+	return client.NewClient(ctx, cfg)
 }

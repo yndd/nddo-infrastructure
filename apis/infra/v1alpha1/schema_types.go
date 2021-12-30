@@ -26,16 +26,10 @@ type NddoinfrastructureInfrastructure struct {
 	AddressingScheme *string `json:"addressing-scheme,omitempty"`
 	AdminState       *string `json:"admin-state,omitempty"`
 	Description      *string `json:"description,omitempty"`
-	InterfaceTagPool *string `json:"interface-tag-pool,omitempty"`
-	IslIpamPool      *string `json:"isl-ipam-pool,omitempty"`
-	LoopbackIpamPool *string `json:"loopback-ipam-pool,omitempty"`
-	OverlayAsPool    *string `json:"overlay-as-pool,omitempty"`
 	//+kubebuilder:validation:MinItems=1
 	//+kubebuilder:validation:MaxItems=16
 	OverlayProtocol []*string                              `json:"overlay-protocol,omitempty"`
 	State           *NddoinfrastructureInfrastructureState `json:"state,omitempty"`
-	TopologyName    *string                                `json:"topology-name,omitempty"`
-	UnderlayAsPool  *string                                `json:"underlay-as-pool,omitempty"`
 	//+kubebuilder:validation:MinItems=1
 	//+kubebuilder:validation:MaxItems=16
 	UnderlayProtocol []*string `json:"underlay-protocol,omitempty"`

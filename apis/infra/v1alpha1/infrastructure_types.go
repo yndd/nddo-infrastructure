@@ -20,15 +20,9 @@ import (
 	"reflect"
 
 	nddv1 "github.com/yndd/ndd-runtime/apis/common/v1"
+	nddov1 "github.com/yndd/nddo-runtime/apis/common/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-)
-
-const (
-	// InfrastructureFinalizer is the name of the finalizer added to
-	// Infrastructure to block delete operations until the physical node can be
-	// deprovisioned.
-	InfrastructureFinalizer string = "infrastructure.infra.nddo.yndd.io"
 )
 
 // Infrastructure struct
@@ -42,19 +36,14 @@ type InfraInfrastructure struct {
 	// kubebuilder:validation:MaxLength=255
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:Pattern="[A-Za-z0-9 !@#$^&()|+=`~.,'/_:;?-]*"
-	Description      *string `json:"description,omitempty"`
-	InterfaceTagPool *string `json:"interface-tag-pool,omitempty"`
-	IslIpamPool      *string `json:"isl-ipam-pool,omitempty"`
-	LoopbackIpamPool *string `json:"loopback-ipam-pool,omitempty"`
-	OverlayAsPool    *string `json:"overlay-as-pool,omitempty"`
+	Description *string `json:"description,omitempty"`
 	//+kubebuilder:validation:MinItems=1
 	//+kubebuilder:validation:MaxItems=16
 	OverlayProtocol []*string `json:"overlay-protocol,omitempty"`
-	TopologyName    *string   `json:"topology-name,omitempty"`
-	UnderlayAsPool  *string   `json:"underlay-as-pool,omitempty"`
 	//+kubebuilder:validation:MinItems=1
 	//+kubebuilder:validation:MaxItems=16
-	UnderlayProtocol []*string `json:"underlay-protocol,omitempty"`
+	UnderlayProtocol  []*string                   `json:"underlay-protocol,omitempty"`
+	InterfaceSelector []*nddov1.InterfaceSelector `json:"interface-selector,omitempty"`
 }
 
 // A InfrastructureSpec defines the desired state of a Infrastructure.
@@ -66,7 +55,9 @@ type InfrastructureSpec struct {
 // A InfrastructureStatus represents the observed state of a InfrastructureSpec.
 type InfrastructureStatus struct {
 	nddv1.ConditionedStatus `json:",inline"`
-	ControllerRef           nddv1.Reference                   `json:"controllerRef,omitempty"`
+	OrganizationName        *string                           `json:"organization-name,omitempty"`
+	DeploymentName          *string                           `json:"deployment-name,omitempty"`
+	NetworkInstanceName     *string                           `json:"network-instance-name,omitempty"`
 	Infrastructure          *NddoinfrastructureInfrastructure `json:"infrastructure,omitempty"`
 }
 
@@ -74,6 +65,15 @@ type InfrastructureStatus struct {
 
 // InfraInfrastructure is the Schema for the Infrastructure API
 // +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="SYNC",type="string",JSONPath=".status.conditions[?(@.kind=='Synced')].status"
+// +kubebuilder:printcolumn:name="STATUS",type="string",JSONPath=".status.conditions[?(@.kind=='Ready')].status"
+// +kubebuilder:printcolumn:name="ORG",type="string",JSONPath=".status.organization-name"
+// +kubebuilder:printcolumn:name="DEPL",type="string",JSONPath=".status.deployment-name"
+// +kubebuilder:printcolumn:name="NI",type="string",JSONPath=".status.network-instance-name"
+// +kubebuilder:printcolumn:name="ADDR",type="string",JSONPath=".spec.infrastructure.addressing-scheme"
+// +kubebuilder:printcolumn:name="UNDERLAY",type="string",JSONPath=".spec.infrastructure.underlay-protocol[0]"
+// +kubebuilder:printcolumn:name="OVERLAY",type="string",JSONPath=".spec.infrastructure.overlay-protocol[0]"
+// +kubebuilder:printcolumn:name="AGE",type="date",JSONPath=".metadata.creationTimestamp"
 type Infrastructure struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

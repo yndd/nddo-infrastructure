@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package infra
+package infra2
 
 import (
 	"context"
@@ -44,6 +44,8 @@ type EnqueueRequestForAllTopologies struct {
 
 	speedy map[string]int
 	mutex  sync.Mutex
+
+	newInfraList func() infrav1alpha1.IfList
 }
 
 // Create enqueues a request for all infrastructures which pertains to the topology.
@@ -75,17 +77,17 @@ func (e *EnqueueRequestForAllTopologies) add(obj runtime.Object, queue adder) {
 	log := e.log.WithValues("function", "watch topo", "name", dd.GetName())
 	log.Debug("infra handleEvent")
 
-	d := &infrav1alpha1.InfrastructureList{}
+	d := e.newInfraList()
 	if err := e.client.List(e.ctx, d); err != nil {
 		return
 	}
 
-	for _, infra := range d.Items {
+	for _, infra := range d.GetInfrastructures() {
 		deploymentName := strings.Join([]string{infra.GetOrganizationName(), infra.GetDeploymentName()}, ".")
 		// only enqueue if the topology name match
 		if strings.Contains(dd.GetName(), deploymentName) {
 
-			crname := infra.GetName()
+			crname := getCrName(infra)
 
 			e.mutex.Lock()
 			e.speedy[crname] = 0
@@ -93,7 +95,7 @@ func (e *EnqueueRequestForAllTopologies) add(obj runtime.Object, queue adder) {
 
 			queue.Add(reconcile.Request{NamespacedName: types.NamespacedName{
 				Namespace: dd.GetNamespace(),
-				Name:      crname}})
+				Name:      infra.GetName()}})
 		}
 	}
 }

@@ -17,11 +17,14 @@ package infra
 
 import (
 	"context"
+	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/yndd/ndd-runtime/pkg/logging"
-	"github.com/yndd/ndd-runtime/pkg/resource"
+	"github.com/yndd/ndd-runtime/pkg/utils"
+	"github.com/yndd/nddo-grpc/resource/resourcepb"
 	infrav1alpha1 "github.com/yndd/nddo-infrastructure/apis/infra/v1alpha1"
+	"github.com/yndd/nddo-runtime/pkg/resource"
 	ipamv1alpha1 "github.com/yndd/nddr-ipam/apis/ipam/v1alpha1"
 	topov1alpha1 "github.com/yndd/nddr-topology/apis/topo/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
@@ -37,9 +40,21 @@ func WithLinkLogger(log logging.Logger) LinkOption {
 	}
 }
 
-func WithLinkClient(c resource.ClientApplicator) LinkOption {
+func WithLinkK8sClient(c resource.ClientApplicator) LinkOption {
 	return func(r *link) {
 		r.client = c
+	}
+}
+
+func WithLinkIpamClient(c resourcepb.ResourceClient) LinkOption {
+	return func(r *link) {
+		r.ipamClient = c
+	}
+}
+
+func WithLinkAsPoolClient(c resourcepb.ResourceClient) LinkOption {
+	return func(r *link) {
+		r.aspoolClient = c
 	}
 }
 
@@ -77,11 +92,19 @@ type Link interface {
 	AllocateIPLinkEndpoint(ctx context.Context, cr infrav1alpha1.If, tl topov1alpha1.Tl, ipamOptions *IpamOptions) error
 	DeAllocateIPLinkEndpoint(ctx context.Context, cr infrav1alpha1.If, tl topov1alpha1.Tl, ipamOptions *IpamOptions) error
 	ValidateIPLinkEndpoint(ctx context.Context, cr infrav1alpha1.If, tl topov1alpha1.Tl, ipamOptions *IpamOptions) (*string, error)
+
+	GrpcAllocateLinkIP(ctx context.Context, cr infrav1alpha1.If, tl topov1alpha1.Tl, ipamOptions *IpamOptions) (*string, error)
+	GrpcDeAllocateLinkIP(ctx context.Context, cr infrav1alpha1.If, tl topov1alpha1.Tl, ipamOptions *IpamOptions) error
+	GrpcAllocateEndpointIP(ctx context.Context, cr infrav1alpha1.If, tl topov1alpha1.Tl, ipamOptions *IpamOptions) (*string, error)
+	GrpcDeAllocateEndpointIP(ctx context.Context, cr infrav1alpha1.If, tl topov1alpha1.Tl, ipamOptions *IpamOptions) error
 }
 
 type link struct {
-	client resource.ClientApplicator
-	log    logging.Logger
+	client       resource.ClientApplicator
+	ipamClient   resourcepb.ResourceClient
+	aspoolClient resourcepb.ResourceClient
+	//client client.Client
+	log logging.Logger
 
 	name       *string
 	nodeNames  map[int]string
@@ -147,64 +170,251 @@ func (x *link) SetInterfaceName(idx int, s string) {
 	x.itfceNames[idx] = s
 }
 
+func (x *link) GrpcAllocateLinkIP(ctx context.Context, cr infrav1alpha1.If, tl topov1alpha1.Tl, ipamOptions *IpamOptions) (*string, error) {
+	req := buildGrpcAllocateLinkIP(cr, tl, ipamOptions)
+	reply, err := x.ipamClient.ResourceAlloc(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	if !reply.Ready {
+		return nil, errors.New("grppc ipam allocation server not ready")
+	}
+	if ipprefix, ok := reply.Data["ip-prefix"]; ok {
+		ipprefixVal, err := GetValue(ipprefix)
+		if err != nil {
+			return nil, err
+		}
+		switch ipPrefix := ipprefixVal.(type) {
+		case string:
+			return utils.StringPtr(ipPrefix), nil
+		default:
+			return nil, errors.New("wrong return data for ipam alocation")
+		}
+
+	}
+	return nil, nil
+}
+
+func (x *link) GrpcDeAllocateLinkIP(ctx context.Context, cr infrav1alpha1.If, tl topov1alpha1.Tl, ipamOptions *IpamOptions) error {
+	req := buildGrpcAllocateLinkIP(cr, tl, ipamOptions)
+	_, err := x.ipamClient.ResourceDeAlloc(ctx, req)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func (x *link) AllocateIPLink(ctx context.Context, cr infrav1alpha1.If, tl topov1alpha1.Tl, ipamOptions *IpamOptions) error {
-	ipamAlloc := buildIpamAllocLink(cr, tl, ipamOptions)
-	if err := x.client.Apply(ctx, ipamAlloc); err != nil {
-		return errors.Wrap(err, errApplyAllocIpam)
+	o := buildIpamAllocLink(cr, tl, ipamOptions)
+	if err := x.client.Apply(ctx, o); err != nil {
+		return errors.Wrap(err, errDeleteAllocIpam)
 	}
 	return nil
 }
 
 func (x *link) DeAllocateIPLink(ctx context.Context, cr infrav1alpha1.If, tl topov1alpha1.Tl, ipamOptions *IpamOptions) error {
-	ipamAlloc := buildIpamAllocLink(cr, tl, ipamOptions)
-	if err := x.client.Delete(ctx, ipamAlloc); err != nil {
+	o := buildIpamAllocLink(cr, tl, ipamOptions)
+	if err := x.client.Delete(ctx, o); err != nil {
 		return errors.Wrap(err, errDeleteAllocIpam)
 	}
 	return nil
 }
 
 func (x *link) ValidateIPLink(ctx context.Context, cr infrav1alpha1.If, tl topov1alpha1.Tl, ipamOptions *IpamOptions) (*string, error) {
-	ipamAlloc := buildIpamAllocLink(cr, tl, ipamOptions)
-	if err := x.client.Get(ctx, types.NamespacedName{Namespace: cr.GetNamespace(), Name: ipamAlloc.GetName()}, ipamAlloc); err != nil {
+	o := buildIpamAllocLink(cr, tl, ipamOptions)
+	if err := x.client.Get(ctx, types.NamespacedName{Namespace: cr.GetNamespace(), Name: o.GetName()}, o); err != nil {
 		return nil, errors.Wrap(err, errGetAllocIpam)
 	}
-	if ipamAlloc.GetCondition(ipamv1alpha1.ConditionKindAllocationReady).Status == corev1.ConditionTrue {
-		if prefix, ok := ipamAlloc.HasIpPrefix(); ok {
+	if o.GetCondition(ipamv1alpha1.ConditionKindReady).Status == corev1.ConditionTrue {
+		if prefix, ok := o.HasIpPrefix(); ok {
 			return &prefix, nil
 		}
 		x.log.Debug("strange ipam alloc ready but no Ip prefix allocated")
 		return nil, errors.Errorf("%s: %s", errUnavailableIpamAllocation, "strange ipam alloc ready but no Ip prefix allocated")
 	}
-	return nil, errors.Errorf("%s: %s", errUnavailableIpamAllocation, ipamAlloc.GetCondition(ipamv1alpha1.ConditionKindAllocationReady).Message)
+	return nil, errors.Errorf("%s: %s", errUnavailableIpamAllocation, o.GetCondition(ipamv1alpha1.ConditionKindReady).Message)
+}
+
+func (x *link) GrpcAllocateEndpointIP(ctx context.Context, cr infrav1alpha1.If, tl topov1alpha1.Tl, ipamOptions *IpamOptions) (*string, error) {
+	req := buildGrpcAllocateEndPointIP(cr, tl, ipamOptions)
+	reply, err := x.ipamClient.ResourceAlloc(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	if !reply.Ready {
+		return nil, errors.New("grppc ipam allocation server not ready")
+	}
+	if ipprefix, ok := reply.Data["ip-prefix"]; ok {
+		ipprefixVal, err := GetValue(ipprefix)
+		if err != nil {
+			return nil, err
+		}
+		switch ipPrefix := ipprefixVal.(type) {
+		case string:
+			return utils.StringPtr(ipPrefix), nil
+		default:
+			return nil, errors.New("wrong return data for ipam alocation")
+		}
+
+	}
+	return nil, nil
+}
+
+func (x *link) GrpcDeAllocateEndpointIP(ctx context.Context, cr infrav1alpha1.If, tl topov1alpha1.Tl, ipamOptions *IpamOptions) error {
+	req := buildGrpcAllocateEndPointIP(cr, tl, ipamOptions)
+	_, err := x.ipamClient.ResourceDeAlloc(ctx, req)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (x *link) AllocateIPLinkEndpoint(ctx context.Context, cr infrav1alpha1.If, tl topov1alpha1.Tl, ipamOptions *IpamOptions) error {
-	ipamAlloc := buildIpamAllocEndPoint(cr, tl, ipamOptions)
-	if err := x.client.Apply(ctx, ipamAlloc); err != nil {
-		return errors.Wrap(err, errApplyAllocIpam)
+	o := buildIpamAllocEndPoint(cr, tl, ipamOptions)
+	if err := x.client.Apply(ctx, o); err != nil {
+		return errors.Wrap(err, errDeleteAllocIpam)
 	}
 	return nil
 }
 
 func (x *link) DeAllocateIPLinkEndpoint(ctx context.Context, cr infrav1alpha1.If, tl topov1alpha1.Tl, ipamOptions *IpamOptions) error {
-	ipamAlloc := buildIpamAllocEndPoint(cr, tl, ipamOptions)
-	if err := x.client.Delete(ctx, ipamAlloc); err != nil {
+	o := buildIpamAllocEndPoint(cr, tl, ipamOptions)
+	if err := x.client.Delete(ctx, o); err != nil {
 		return errors.Wrap(err, errDeleteAllocIpam)
 	}
 	return nil
 }
 
 func (x *link) ValidateIPLinkEndpoint(ctx context.Context, cr infrav1alpha1.If, tl topov1alpha1.Tl, ipamOptions *IpamOptions) (*string, error) {
-	ipamAlloc := buildIpamAllocEndPoint(cr, tl, ipamOptions)
-	if err := x.client.Get(ctx, types.NamespacedName{Namespace: cr.GetNamespace(), Name: ipamAlloc.GetName()}, ipamAlloc); err != nil {
+	o := buildIpamAllocEndPoint(cr, tl, ipamOptions)
+	if err := x.client.Get(ctx, types.NamespacedName{Namespace: cr.GetNamespace(), Name: o.GetName()}, o); err != nil {
 		return nil, errors.Wrap(err, errGetAllocIpam)
 	}
-	if ipamAlloc.GetCondition(ipamv1alpha1.ConditionKindAllocationReady).Status == corev1.ConditionTrue {
-		if prefix, ok := ipamAlloc.HasIpPrefix(); ok {
+	if o.GetCondition(ipamv1alpha1.ConditionKindReady).Status == corev1.ConditionTrue {
+		if prefix, ok := o.HasIpPrefix(); ok {
 			return &prefix, nil
 		}
 		x.log.Debug("strange ipam alloc ready but no Ip prefix allocated")
 		return nil, errors.Errorf("%s: %s", errUnavailableIpamAllocation, "strange ipam alloc ready but no Ip prefix allocated")
 	}
-	return nil, errors.Errorf("%s: %s", errUnavailableIpamAllocation, ipamAlloc.GetCondition(ipamv1alpha1.ConditionKindAllocationReady).Message)
+	return nil, errors.Errorf("%s: %s", errUnavailableIpamAllocation, o.GetCondition(ipamv1alpha1.ConditionKindReady).Message)
 }
+
+func buildGrpcAllocateLinkIP(cr infrav1alpha1.If, x topov1alpha1.Tl, ipamOptions *IpamOptions) *resourcepb.Request {
+	return &resourcepb.Request{
+		Namespace:    cr.GetNamespace(),
+		ResourceName: strings.Join([]string{ipamOptions.IpamName, ipamOptions.NetworkInstanceName, x.GetLinkName(), ipamOptions.AddressFamily}, "."),
+		Kind:         "ipam",
+		Alloc: &resourcepb.Alloc{
+			Selector: map[string]string{
+				ipamv1alpha1.KeyAddressFamily: ipamOptions.AddressFamily,
+				ipamv1alpha1.KeyPurpose:       ipamv1alpha1.PurposeIsl.String(),
+			},
+			SourceTag: map[string]string{
+				x.GetEndpointANodeName(): x.GetEndpointAInterfaceName(),
+				x.GetEndpointBNodeName(): x.GetEndpointBInterfaceName(),
+			},
+		},
+	}
+}
+
+/*
+func buildIpamAllocLink(cr infrav1alpha1.If, x topov1alpha1.Tl, ipamOptions *IpamOptions) *ipamv1alpha1.Alloc {
+	return &ipamv1alpha1.Alloc{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      strings.Join([]string{ipamOptions.IpamName, ipamOptions.NetworkInstanceName, x.GetLinkName(), ipamOptions.AddressFamily}, "."),
+			Namespace: cr.GetNamespace(),
+			//Labels: map[string]string{
+			//	labelPrefix: strings.Join([]string{ipamOptions.IpamName, ipamOptions.NetworkInstanceName, x.GetLinkName(), ipamOptions.AddressFamily}, "."),
+			//},
+			OwnerReferences: []metav1.OwnerReference{meta.AsController(meta.TypedReferenceTo(cr, infrav1alpha1.InfrastructureGroupVersionKind))},
+		},
+		Spec: ipamv1alpha1.AllocSpec{
+			Alloc: &ipamv1alpha1.IpamAlloc{
+				Selector: []*nddov1.Tag{
+					{Key: utils.StringPtr(ipamv1alpha1.KeyAddressFamily), Value: utils.StringPtr(ipamOptions.AddressFamily)},
+					{Key: utils.StringPtr(ipamv1alpha1.KeyPurpose), Value: utils.StringPtr(ipamv1alpha1.PurposeIsl.String())},
+				},
+				SourceTag: []*nddov1.Tag{
+					{Key: utils.StringPtr(x.GetEndpointANodeName()), Value: utils.StringPtr(x.GetEndpointAInterfaceName())},
+					{Key: utils.StringPtr(x.GetEndpointBNodeName()), Value: utils.StringPtr(x.GetEndpointBInterfaceName())},
+				},
+			},
+		},
+	}
+}
+*/
+
+func buildGrpcAllocateEndPointIP(cr infrav1alpha1.If, x topov1alpha1.Tl, ipamOptions *IpamOptions) *resourcepb.Request {
+	var (
+		nodeName  string
+		itfcename string
+	)
+	if ipamOptions.EpIndex == 0 {
+		nodeName = x.GetEndpointANodeName()
+		itfcename = x.GetEndpointAInterfaceName()
+	} else {
+		nodeName = x.GetEndpointBNodeName()
+		itfcename = x.GetEndpointBInterfaceName()
+	}
+
+	return &resourcepb.Request{
+		Namespace:    cr.GetNamespace(),
+		ResourceName: strings.Join([]string{ipamOptions.IpamName, ipamOptions.NetworkInstanceName, x.GetLinkName(), nodeName, ipamOptions.AddressFamily}, "."),
+		Kind:         "ipam",
+		Alloc: &resourcepb.Alloc{
+			IpPrefix: ipamOptions.IpPrefix,
+			Selector: map[string]string{
+				ipamv1alpha1.KeyAddressFamily: ipamOptions.AddressFamily,
+				ipamv1alpha1.KeyPurpose:       ipamv1alpha1.PurposeIsl.String(),
+				x.GetEndpointANodeName():      x.GetEndpointAInterfaceName(),
+				x.GetEndpointBNodeName():      x.GetEndpointBInterfaceName(),
+			},
+			SourceTag: map[string]string{
+				topov1alpha1.KeyNode:      nodeName,
+				topov1alpha1.KeyInterface: itfcename,
+			},
+		},
+	}
+}
+
+/*
+func buildIpamAllocEndPoint(cr infrav1alpha1.If, x topov1alpha1.Tl, ipamOptions *IpamOptions) *ipamv1alpha1.Alloc {
+	var (
+		nodeName  string
+		itfcename string
+	)
+	if ipamOptions.EpIndex == 0 {
+		nodeName = x.GetEndpointANodeName()
+		itfcename = x.GetEndpointAInterfaceName()
+	} else {
+		nodeName = x.GetEndpointBNodeName()
+		itfcename = x.GetEndpointBInterfaceName()
+	}
+	return &ipamv1alpha1.Alloc{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      strings.Join([]string{ipamOptions.IpamName, ipamOptions.NetworkInstanceName, x.GetLinkName(), nodeName, ipamOptions.AddressFamily}, "."),
+			Namespace: cr.GetNamespace(),
+			Labels:    map[string]string{
+				//labelPrefix: strings.Join([]string{allocIpamPrefix, cr.GetName(), x.GetName(), nodeName}, "-"),
+			},
+			OwnerReferences: []metav1.OwnerReference{meta.AsController(meta.TypedReferenceTo(cr, infrav1alpha1.InfrastructureGroupVersionKind))},
+		},
+		Spec: ipamv1alpha1.AllocSpec{
+			Alloc: &ipamv1alpha1.IpamAlloc{
+				IpPrefix: utils.StringPtr(ipamOptions.IpPrefix),
+				Selector: []*nddov1.Tag{
+					{Key: utils.StringPtr(ipamv1alpha1.KeyAddressFamily), Value: utils.StringPtr(ipamOptions.AddressFamily)},
+					{Key: utils.StringPtr(ipamv1alpha1.KeyPurpose), Value: utils.StringPtr(ipamv1alpha1.PurposeIsl.String())},
+					{Key: utils.StringPtr(x.GetEndpointANodeName()), Value: utils.StringPtr(x.GetEndpointAInterfaceName())},
+					{Key: utils.StringPtr(x.GetEndpointBNodeName()), Value: utils.StringPtr(x.GetEndpointBInterfaceName())},
+				},
+				SourceTag: []*nddov1.Tag{
+					{Key: utils.StringPtr(topov1alpha1.KeyNode), Value: utils.StringPtr(nodeName)},
+					{Key: utils.StringPtr(topov1alpha1.KeyInterface), Value: utils.StringPtr(itfcename)},
+				},
+			},
+		},
+	}
+}
+*/

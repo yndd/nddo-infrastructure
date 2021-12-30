@@ -18,9 +18,11 @@ package infra
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/yndd/ndd-runtime/pkg/logging"
-	"github.com/yndd/ndd-runtime/pkg/resource"
+	"github.com/yndd/nddo-grpc/resource/resourcepb"
+	"github.com/yndd/nddo-runtime/pkg/resource"
 )
 
 // InfraOption is used to configure the Infra.
@@ -32,9 +34,21 @@ func WithInfraLogger(log logging.Logger) InfraOption {
 	}
 }
 
-func WithInfraClient(c resource.ClientApplicator) InfraOption {
+func WithInfraK8sClient(c resource.ClientApplicator) InfraOption {
 	return func(r *infra) {
 		r.client = c
+	}
+}
+
+func WithInfraIpamClient(c resourcepb.ResourceClient) InfraOption {
+	return func(r *infra) {
+		r.ipamClient = c
+	}
+}
+
+func WithInfraAsPoolClient(c resourcepb.ResourceClient) InfraOption {
+	return func(r *infra) {
+		r.aspoolClient = c
 	}
 }
 
@@ -54,21 +68,30 @@ func NewInfra(opts ...InfraOption) Infra {
 var _ Infra = &infra{}
 
 type Infra interface {
+	Lock()
+	UnLock()
 	GetNodes() map[string]Node
-	//AddNode(Node)
-	//DeleteNode(Node)
 	GetLinks() map[string]Link
-	//AddLink(Link)
-	//DeleteLink(Link)
-	PrintNodes()
+	PrintNodes(string)
 }
 
 type infra struct {
-	client resource.ClientApplicator
-	log    logging.Logger
+	client       resource.ClientApplicator
+	ipamClient   resourcepb.ResourceClient
+	aspoolClient resourcepb.ResourceClient
+	log          logging.Logger
 
 	nodes map[string]Node
 	links map[string]Link
+	mutex sync.Mutex
+}
+
+func (x *infra) Lock() {
+	x.mutex.Lock()
+}
+
+func (x *infra) UnLock() {
+	x.mutex.Unlock()
 }
 
 func (x *infra) GetNodes() map[string]Node {
@@ -88,8 +111,8 @@ func (x *infra) GetLink(n string) Link {
 	return nil
 }
 
-func (x *infra) PrintNodes() {
-	fmt.Printf("infrastructure node information\n")
+func (x *infra) PrintNodes(n string) {
+	fmt.Printf("infrastructure node information: %s\n", n)
 	for name, n := range x.GetNodes() {
 		n.Print(name, 1)
 	}

@@ -22,6 +22,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"github.com/yndd/nddo-runtime/apis/common/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 )
 
@@ -43,26 +44,6 @@ func (in *InfraInfrastructure) DeepCopyInto(out *InfraInfrastructure) {
 		*out = new(string)
 		**out = **in
 	}
-	if in.InterfaceTagPool != nil {
-		in, out := &in.InterfaceTagPool, &out.InterfaceTagPool
-		*out = new(string)
-		**out = **in
-	}
-	if in.IslIpamPool != nil {
-		in, out := &in.IslIpamPool, &out.IslIpamPool
-		*out = new(string)
-		**out = **in
-	}
-	if in.LoopbackIpamPool != nil {
-		in, out := &in.LoopbackIpamPool, &out.LoopbackIpamPool
-		*out = new(string)
-		**out = **in
-	}
-	if in.OverlayAsPool != nil {
-		in, out := &in.OverlayAsPool, &out.OverlayAsPool
-		*out = new(string)
-		**out = **in
-	}
 	if in.OverlayProtocol != nil {
 		in, out := &in.OverlayProtocol, &out.OverlayProtocol
 		*out = make([]*string, len(*in))
@@ -74,16 +55,6 @@ func (in *InfraInfrastructure) DeepCopyInto(out *InfraInfrastructure) {
 			}
 		}
 	}
-	if in.TopologyName != nil {
-		in, out := &in.TopologyName, &out.TopologyName
-		*out = new(string)
-		**out = **in
-	}
-	if in.UnderlayAsPool != nil {
-		in, out := &in.UnderlayAsPool, &out.UnderlayAsPool
-		*out = new(string)
-		**out = **in
-	}
 	if in.UnderlayProtocol != nil {
 		in, out := &in.UnderlayProtocol, &out.UnderlayProtocol
 		*out = make([]*string, len(*in))
@@ -92,6 +63,17 @@ func (in *InfraInfrastructure) DeepCopyInto(out *InfraInfrastructure) {
 				in, out := &(*in)[i], &(*out)[i]
 				*out = new(string)
 				**out = **in
+			}
+		}
+	}
+	if in.InterfaceSelector != nil {
+		in, out := &in.InterfaceSelector, &out.InterfaceSelector
+		*out = make([]*v1.InterfaceSelector, len(*in))
+		for i := range *in {
+			if (*in)[i] != nil {
+				in, out := &(*in)[i], &(*out)[i]
+				*out = new(v1.InterfaceSelector)
+				(*in).DeepCopyInto(*out)
 			}
 		}
 	}
@@ -190,7 +172,21 @@ func (in *InfrastructureSpec) DeepCopy() *InfrastructureSpec {
 func (in *InfrastructureStatus) DeepCopyInto(out *InfrastructureStatus) {
 	*out = *in
 	in.ConditionedStatus.DeepCopyInto(&out.ConditionedStatus)
-	out.ControllerRef = in.ControllerRef
+	if in.OrganizationName != nil {
+		in, out := &in.OrganizationName, &out.OrganizationName
+		*out = new(string)
+		**out = **in
+	}
+	if in.DeploymentName != nil {
+		in, out := &in.DeploymentName, &out.DeploymentName
+		*out = new(string)
+		**out = **in
+	}
+	if in.NetworkInstanceName != nil {
+		in, out := &in.NetworkInstanceName, &out.NetworkInstanceName
+		*out = new(string)
+		**out = **in
+	}
 	if in.Infrastructure != nil {
 		in, out := &in.Infrastructure, &out.Infrastructure
 		*out = new(NddoinfrastructureInfrastructure)
@@ -252,26 +248,6 @@ func (in *NddoinfrastructureInfrastructure) DeepCopyInto(out *Nddoinfrastructure
 		*out = new(string)
 		**out = **in
 	}
-	if in.InterfaceTagPool != nil {
-		in, out := &in.InterfaceTagPool, &out.InterfaceTagPool
-		*out = new(string)
-		**out = **in
-	}
-	if in.IslIpamPool != nil {
-		in, out := &in.IslIpamPool, &out.IslIpamPool
-		*out = new(string)
-		**out = **in
-	}
-	if in.LoopbackIpamPool != nil {
-		in, out := &in.LoopbackIpamPool, &out.LoopbackIpamPool
-		*out = new(string)
-		**out = **in
-	}
-	if in.OverlayAsPool != nil {
-		in, out := &in.OverlayAsPool, &out.OverlayAsPool
-		*out = new(string)
-		**out = **in
-	}
 	if in.OverlayProtocol != nil {
 		in, out := &in.OverlayProtocol, &out.OverlayProtocol
 		*out = make([]*string, len(*in))
@@ -287,16 +263,6 @@ func (in *NddoinfrastructureInfrastructure) DeepCopyInto(out *Nddoinfrastructure
 		in, out := &in.State, &out.State
 		*out = new(NddoinfrastructureInfrastructureState)
 		(*in).DeepCopyInto(*out)
-	}
-	if in.TopologyName != nil {
-		in, out := &in.TopologyName, &out.TopologyName
-		*out = new(string)
-		**out = **in
-	}
-	if in.UnderlayAsPool != nil {
-		in, out := &in.UnderlayAsPool, &out.UnderlayAsPool
-		*out = new(string)
-		**out = **in
 	}
 	if in.UnderlayProtocol != nil {
 		in, out := &in.UnderlayProtocol, &out.UnderlayProtocol

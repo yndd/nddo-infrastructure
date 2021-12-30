@@ -52,8 +52,8 @@ var (
 // startCmd represents the start command for the network device driver
 var startCmd = &cobra.Command{
 	Use:          "start",
-	Short:        "start the ipam nddo intent manager",
-	Long:         "start the ipam ndd0 intent manager",
+	Short:        "start the infrastructure nddo intent manager",
+	Long:         "start the infrastructure ndd0 intent manager",
 	Aliases:      []string{"start"},
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {

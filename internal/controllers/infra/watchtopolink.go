@@ -19,6 +19,7 @@ package infra
 import (
 	"context"
 	"strings"
+	"sync"
 
 	//ndddvrv1 "github.com/yndd/ndd-core/apis/dvr/v1"
 	"github.com/yndd/ndd-runtime/pkg/logging"
@@ -38,6 +39,7 @@ type EnqueueRequestForAllTopologyLinks struct {
 	ctx    context.Context
 
 	speedy map[string]int
+	mutex  sync.Mutex
 }
 
 // Create enqueues a request for all infrastructures which pertains to the topology.
@@ -70,20 +72,24 @@ func (e *EnqueueRequestForAllTopologyLinks) add(obj runtime.Object, queue adder)
 	log.Debug("infra handleEvent")
 
 	d := &infrav1alpha1.InfrastructureList{}
-	if err := e.client.List(context.TODO(), d); err != nil {
+	if err := e.client.List(e.ctx, d); err != nil {
 		return
 	}
 
 	for _, infra := range d.Items {
+		deploymentName := strings.Join([]string{infra.GetOrganizationName(), infra.GetDeploymentName()}, ".")
 		// only enqueue if the topology name match
-		if infra.GetTopologyName() == dd.GetTopologyName() {
+		if strings.Contains(dd.GetName(), deploymentName) {
 
-			infraname := strings.Join([]string{dd.GetNamespace(), infra.GetName()}, "/")
-			e.speedy[infraname] = 0
+			crname := infra.GetName()
+
+			e.mutex.Lock()
+			e.speedy[crname] = 0
+			e.mutex.Unlock()
 
 			queue.Add(reconcile.Request{NamespacedName: types.NamespacedName{
 				Namespace: dd.GetNamespace(),
-				Name:      infra.GetName()}})
+				Name:      crname}})
 		}
 	}
 }

@@ -1,19 +1,14 @@
 apiVersion: infra.nddo.yndd.io/v1alpha1
 kind: Infrastructure
 metadata:
-  name: infra-test
+  name: nokia.region1.default
   namespace: default
 spec:
   infrastructure:
     admin-state: enable
-    topology-name: topo-test
     addressing-scheme: dual-stack
     underlay-protocol:
     - 'ebgp'
     overlay-protocol:
     - 'evpn'
-    underlay-as-pool: deterministic
-    overlay-as-pool: deterministic
-    loopback-ipam-pool: tbd
-    isl-ipam-pool: tbd
-    interface-tag-pool: tbd
+    

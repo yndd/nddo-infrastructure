@@ -16,14 +16,59 @@ limitations under the License.
 package infra
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 	"strings"
 
+	"github.com/pkg/errors"
 	"github.com/yndd/ndd-runtime/pkg/logging"
-	"github.com/yndd/ndd-runtime/pkg/resource"
+	"github.com/yndd/ndd-runtime/pkg/meta"
 	"github.com/yndd/ndd-runtime/pkg/utils"
+	networkv1alpha1 "github.com/yndd/ndda-network/apis/network/v1alpha1"
+	"github.com/yndd/nddo-grpc/resource/resourcepb"
+	infrav1alpha1 "github.com/yndd/nddo-infrastructure/apis/infra/v1alpha1"
+	"github.com/yndd/nddo-runtime/pkg/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 )
+
+const (
+	InterfacePrefix = "infra"
+
+	errCreateInterface = "cannot create Interface"
+	errDeleteInterface = "cannot delete Interface"
+	errGetInterface    = "cannot get Interface"
+)
+
+type InterfaceKind string
+
+const (
+	InterfaceKindLoopback   InterfaceKind = "loopback"
+	InterfaceKindManagement InterfaceKind = "management"
+	InterfaceKindInterface  InterfaceKind = "interface"
+	InterfaceKindIrb        InterfaceKind = "irb"
+	InterfaceKindVxlan      InterfaceKind = "vxlan"
+	InterfaceKindSystem     InterfaceKind = "system"
+)
+
+func (s InterfaceKind) String() string {
+	switch s {
+	case InterfaceKindManagement:
+		return "management"
+	case InterfaceKindLoopback:
+		return "loopback"
+	case InterfaceKindInterface:
+		return "interface"
+	case InterfaceKindIrb:
+		return "irb"
+	case InterfaceKindVxlan:
+		return "vxlan"
+	case InterfaceKindSystem:
+		return "system"
+	}
+	return "unknown"
+}
 
 // InfraOption is used to configure the Infra.
 type InterfaceOption func(*itfce)
@@ -34,14 +79,27 @@ func WithInterfaceLogger(log logging.Logger) InterfaceOption {
 	}
 }
 
-func WithInterfaceClient(c resource.ClientApplicator) InterfaceOption {
+func WithInterfaceK8sClient(c resource.ClientApplicator) InterfaceOption {
 	return func(r *itfce) {
 		r.client = c
 	}
 }
 
-func NewInterface(n Node, opts ...InterfaceOption) Interface {
+func WithInterfaceIpamClient(c resourcepb.ResourceClient) InterfaceOption {
+	return func(r *itfce) {
+		r.ipamClient = c
+	}
+}
+
+func WithInterfaceAsPoolClient(c resourcepb.ResourceClient) InterfaceOption {
+	return func(r *itfce) {
+		r.aspoolClient = c
+	}
+}
+
+func NewInterface(n Node, name string, opts ...InterfaceOption) Interface {
 	i := &itfce{
+		name:          &name,
 		node:          n,
 		subInterfaces: make(map[string]SubInterface),
 	}
@@ -76,12 +134,20 @@ type Interface interface {
 	GetLagMemberNames() []string
 	HasVlanTags() bool
 	GetSubInterfaces() map[string]SubInterface
+
+	GetNddaInterface(ctx context.Context, cr infrav1alpha1.If) (*string, error)
+	CreateNddaInterface(ctx context.Context, cr infrav1alpha1.If) error
+	DeleteNddaInterface(ctx context.Context, cr infrav1alpha1.If) error
+
 	Print(string, int)
 }
 
 type itfce struct {
-	client resource.ClientApplicator
-	log    logging.Logger
+	//client client.Client
+	client       resource.ClientApplicator
+	ipamClient   resourcepb.ResourceClient
+	aspoolClient resourcepb.ResourceClient
+	log          logging.Logger
 
 	node          Node
 	name          *string
@@ -219,22 +285,75 @@ func (x *itfce) Print(itfceName string, n int) {
 	}
 }
 
-type InterfaceKind string
-
-const (
-	InterfaceKindLoopback   InterfaceKind = "loopback"
-	InterfaceKindManagement InterfaceKind = "management"
-	InterfaceKindInterface  InterfaceKind = "interface"
-)
-
-func (s InterfaceKind) String() string {
-	switch s {
-	case InterfaceKindManagement:
-		return "management"
-	case InterfaceKindLoopback:
-		return "loopback"
-	case InterfaceKindInterface:
-		return "interface"
+func (x *itfce) GetNddaInterface(ctx context.Context, cr infrav1alpha1.If) (*string, error) {
+	o := x.buildNddaInterface(cr)
+	if err := x.client.Get(ctx, types.NamespacedName{
+		Namespace: cr.GetNamespace(), Name: o.GetName()}, o); err != nil {
+		return nil, errors.Wrap(err, errGetInterface)
 	}
-	return "unknown"
+	return utils.StringPtr(o.GetName()), nil
+}
+
+func (x *itfce) CreateNddaInterface(ctx context.Context, cr infrav1alpha1.If) error {
+	o := x.buildNddaInterface(cr)
+	if err := x.client.Apply(ctx, o); err != nil {
+		return errors.Wrap(err, errDeleteInterface)
+	}
+	return nil
+}
+
+func (x *itfce) DeleteNddaInterface(ctx context.Context, cr infrav1alpha1.If) error {
+	o := x.buildNddaInterface(cr)
+	if err := x.client.Delete(ctx, o); err != nil {
+		return errors.Wrap(err, errDeleteInterface)
+	}
+	return nil
+}
+
+func (x *itfce) buildNddaInterface(cr infrav1alpha1.If) *networkv1alpha1.Interface {
+	itfceName := strings.ReplaceAll(x.GetName(), "/", "-")
+
+	orgName := cr.GetOrganizationName()
+	depName := cr.GetDeploymentName()
+
+	objMeta := metav1.ObjectMeta{
+		Name:      strings.Join([]string{orgName, depName, x.GetNode().GetName(), itfceName, x.GetKind()}, "."),
+		Namespace: cr.GetNamespace(),
+		Labels: map[string]string{
+			networkv1alpha1.LabelInterfaceKindKey: x.GetKind(),
+		},
+		OwnerReferences: []metav1.OwnerReference{meta.AsController(meta.TypedReferenceTo(cr, infrav1alpha1.InfrastructureGroupVersionKind))},
+	}
+
+	switch x.GetKind() {
+	case InterfaceKindInterface.String():
+		return &networkv1alpha1.Interface{
+			ObjectMeta: objMeta,
+			Spec: networkv1alpha1.InterfaceSpec{
+				NodeName: utils.StringPtr(x.GetNode().GetName()),
+				//EndpointGroup: utils.StringPtr(cr.GetName()),
+				Interface: &networkv1alpha1.NetworkInterface{
+					Name:         utils.StringPtr(x.GetName()),
+					Kind:         utils.StringPtr(x.GetKind()),
+					Lag:          utils.BoolPtr(x.IsLag()),
+					LagMember:    utils.BoolPtr(x.IsLagMember()),
+					LagName:      utils.StringPtr(x.GetLagName()),
+					Lacp:         utils.BoolPtr(x.IsLacp()),
+					LacpFallback: utils.BoolPtr(x.IsLacpFallback()),
+				},
+			},
+		}
+	default:
+		return &networkv1alpha1.Interface{
+			ObjectMeta: objMeta,
+			Spec: networkv1alpha1.InterfaceSpec{
+				NodeName: utils.StringPtr(x.GetNode().GetName()),
+				//EndpointGroup: utils.StringPtr(cr.GetName()),
+				Interface: &networkv1alpha1.NetworkInterface{
+					Name: utils.StringPtr(x.GetName()),
+					Kind: utils.StringPtr(x.GetKind()),
+				},
+			},
+		}
+	}
 }

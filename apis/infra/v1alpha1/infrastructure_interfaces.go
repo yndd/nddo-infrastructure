@@ -18,11 +18,31 @@ package v1alpha1
 
 import (
 	"reflect"
+	"strings"
 
 	nddv1 "github.com/yndd/ndd-runtime/apis/common/v1"
 	"github.com/yndd/ndd-runtime/pkg/resource"
 	"github.com/yndd/ndd-runtime/pkg/utils"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+var _ IfList = &InfrastructureList{}
+
+// +k8s:deepcopy-gen=false
+type IfList interface {
+	client.ObjectList
+
+	GetInfrastructures() []If
+}
+
+func (x *InfrastructureList) GetInfrastructures() []If {
+	xs := make([]If, len(x.Items))
+	for i, r := range x.Items {
+		r := r // Pin range variable so we can take its address.
+		xs[i] = &r
+	}
+	return xs
+}
 
 var _ If = &Infrastructure{}
 
@@ -31,18 +51,12 @@ type If interface {
 	resource.Object
 	resource.Conditioned
 
-	GetControllerReference() nddv1.Reference
-	SetControllerReference(c nddv1.Reference)
-
+	GetOrganizationName() string
+	GetDeploymentName() string
+	GetNetworkInstanceName() string
 	GetAdminState() string
 	GetDescription() string
-	GetTopologyName() string
 	GetAddressingScheme() string
-	GetInterfaceTagPool() string
-	GetIslIpamPool() string
-	GetLoopbackIpamPool() string
-	GetOverlayAsPool() string
-	GetUnderlayAsPool() string
 	GetUnderlayProtocol() []string
 	GetOverlayProtocol() []string
 	InitializeResource() error
@@ -50,6 +64,9 @@ type If interface {
 	SetStatus(string)
 	SetReason(string)
 	GetStatus() string
+	SetOrganizationName(s string)
+	SetDeploymentName(s string)
+	SetNetworkInstanceName(s string)
 }
 
 // GetCondition of this Network Node.
@@ -62,14 +79,28 @@ func (x *Infrastructure) SetConditions(c ...nddv1.Condition) {
 	x.Status.SetConditions(c...)
 }
 
-// GetControllerReference of the Network Node.
-func (x *Infrastructure) GetControllerReference() nddv1.Reference {
-	return x.Status.ControllerRef
+func (x *Infrastructure) GetOrganizationName() string {
+	split := strings.Split(x.GetName(), ".")
+	if len(split) >= 3 {
+		return split[0]
+	}
+	return ""
 }
 
-// SetControllerReference of the Network Node.
-func (x *Infrastructure) SetControllerReference(c nddv1.Reference) {
-	x.Status.ControllerRef = c
+func (x *Infrastructure) GetDeploymentName() string {
+	split := strings.Split(x.GetName(), ".")
+	if len(split) >= 3 {
+		return split[1]
+	}
+	return ""
+}
+
+func (x *Infrastructure) GetNetworkInstanceName() string {
+	split := strings.Split(x.GetName(), ".")
+	if len(split) >= 3 {
+		return split[2]
+	}
+	return ""
 }
 
 func (x *Infrastructure) GetAdminState() string {
@@ -86,53 +117,11 @@ func (x *Infrastructure) GetDescription() string {
 	return *x.Spec.Infrastructure.Description
 }
 
-func (x *Infrastructure) GetTopologyName() string {
-	if reflect.ValueOf(x.Spec.Infrastructure.TopologyName).IsZero() {
-		return ""
-	}
-	return *x.Spec.Infrastructure.TopologyName
-}
-
 func (x *Infrastructure) GetAddressingScheme() string {
 	if reflect.ValueOf(x.Spec.Infrastructure.AddressingScheme).IsZero() {
 		return ""
 	}
 	return *x.Spec.Infrastructure.AddressingScheme
-}
-
-func (x *Infrastructure) GetInterfaceTagPool() string {
-	if reflect.ValueOf(x.Spec.Infrastructure.InterfaceTagPool).IsZero() {
-		return ""
-	}
-	return *x.Spec.Infrastructure.InterfaceTagPool
-}
-
-func (x *Infrastructure) GetIslIpamPool() string {
-	if reflect.ValueOf(x.Spec.Infrastructure.IslIpamPool).IsZero() {
-		return ""
-	}
-	return *x.Spec.Infrastructure.IslIpamPool
-}
-
-func (x *Infrastructure) GetLoopbackIpamPool() string {
-	if reflect.ValueOf(x.Spec.Infrastructure.LoopbackIpamPool).IsZero() {
-		return ""
-	}
-	return *x.Spec.Infrastructure.LoopbackIpamPool
-}
-
-func (x *Infrastructure) GetOverlayAsPool() string {
-	if reflect.ValueOf(x.Spec.Infrastructure.OverlayAsPool).IsZero() {
-		return ""
-	}
-	return *x.Spec.Infrastructure.OverlayAsPool
-}
-
-func (x *Infrastructure) GetUnderlayAsPool() string {
-	if reflect.ValueOf(x.Spec.Infrastructure.UnderlayAsPool).IsZero() {
-		return ""
-	}
-	return *x.Spec.Infrastructure.UnderlayAsPool
 }
 
 func (x *Infrastructure) GetOverlayProtocol() []string {
@@ -164,13 +153,7 @@ func (x *Infrastructure) InitializeResource() error {
 		x.Status.Infrastructure.AdminState = x.Spec.Infrastructure.AdminState
 		x.Status.Infrastructure.Description = x.Spec.Infrastructure.Description
 		x.Status.Infrastructure.AddressingScheme = x.Spec.Infrastructure.AddressingScheme
-		x.Status.Infrastructure.InterfaceTagPool = x.Spec.Infrastructure.InterfaceTagPool
-		x.Status.Infrastructure.IslIpamPool = x.Spec.Infrastructure.IslIpamPool
-		x.Status.Infrastructure.LoopbackIpamPool = x.Spec.Infrastructure.LoopbackIpamPool
-		x.Status.Infrastructure.OverlayAsPool = x.Spec.Infrastructure.OverlayAsPool
 		x.Status.Infrastructure.OverlayProtocol = x.Spec.Infrastructure.OverlayProtocol
-		x.Status.Infrastructure.TopologyName = x.Spec.Infrastructure.TopologyName
-		x.Status.Infrastructure.UnderlayAsPool = x.Spec.Infrastructure.UnderlayAsPool
 		x.Status.Infrastructure.UnderlayProtocol = x.Spec.Infrastructure.UnderlayProtocol
 		return nil
 	}
@@ -179,13 +162,7 @@ func (x *Infrastructure) InitializeResource() error {
 		AdminState:       x.Spec.Infrastructure.AdminState,
 		Description:      x.Spec.Infrastructure.Description,
 		AddressingScheme: x.Spec.Infrastructure.AddressingScheme,
-		InterfaceTagPool: x.Spec.Infrastructure.InterfaceTagPool,
-		IslIpamPool:      x.Spec.Infrastructure.IslIpamPool,
-		LoopbackIpamPool: x.Spec.Infrastructure.LoopbackIpamPool,
-		OverlayAsPool:    x.Spec.Infrastructure.OverlayAsPool,
 		OverlayProtocol:  x.Spec.Infrastructure.OverlayProtocol,
-		TopologyName:     x.Spec.Infrastructure.TopologyName,
-		UnderlayAsPool:   x.Spec.Infrastructure.UnderlayAsPool,
 		UnderlayProtocol: x.Spec.Infrastructure.UnderlayProtocol,
 		State: &NddoinfrastructureInfrastructureState{
 			Status: utils.StringPtr(""),
@@ -210,6 +187,18 @@ func (x *Infrastructure) GetStatus() string {
 		return *x.Status.Infrastructure.State.Status
 	}
 	return "unknown"
+}
+
+func (x *Infrastructure) SetOrganizationName(s string) {
+	x.Status.OrganizationName = &s
+}
+
+func (x *Infrastructure) SetDeploymentName(s string) {
+	x.Status.DeploymentName = &s
+}
+
+func (x *Infrastructure) SetNetworkInstanceName(s string) {
+	x.Status.NetworkInstanceName = &s
 }
 
 type AddressingScheme string

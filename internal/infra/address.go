@@ -21,7 +21,8 @@ import (
 	"strings"
 
 	"github.com/yndd/ndd-runtime/pkg/logging"
-	"github.com/yndd/ndd-runtime/pkg/resource"
+	"github.com/yndd/nddo-grpc/resource/resourcepb"
+	"github.com/yndd/nddo-runtime/pkg/resource"
 )
 
 // AddressOption is used to configure the Infra.
@@ -33,9 +34,21 @@ func WithAddressLogger(log logging.Logger) AddressOption {
 	}
 }
 
-func WithAddressClient(c resource.ClientApplicator) AddressOption {
+func WithAddressK8sClient(c resource.ClientApplicator) AddressOption {
 	return func(r *addressInfo) {
 		r.client = c
+	}
+}
+
+func WithAddressIpamClient(c resourcepb.ResourceClient) AddressOption {
+	return func(r *addressInfo) {
+		r.ipamClient = c
+	}
+}
+
+func WithAddressAsPoolClient(c resourcepb.ResourceClient) AddressOption {
+	return func(r *addressInfo) {
+		r.aspoolClient = c
 	}
 }
 
@@ -62,8 +75,10 @@ type AddressInfo interface {
 }
 
 type addressInfo struct {
-	client resource.ClientApplicator
-	log    logging.Logger
+	client       resource.ClientApplicator
+	ipamClient   resourcepb.ResourceClient
+	aspoolClient resourcepb.ResourceClient
+	log          logging.Logger
 
 	prefix       *string
 	address      *string

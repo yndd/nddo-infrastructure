@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package infra
+package infra2
 
 import (
 	"context"
@@ -23,65 +23,118 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pkg/errors"
-	nddv1 "github.com/yndd/ndd-runtime/apis/common/v1"
-	"github.com/yndd/ndd-runtime/pkg/event"
-	"github.com/yndd/ndd-runtime/pkg/logging"
-	"github.com/yndd/ndd-runtime/pkg/meta"
-	nddov1 "github.com/yndd/nddo-runtime/apis/common/v1"
-	"github.com/yndd/nddo-runtime/pkg/resource"
-	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sigs.k8s.io/controller-runtime/pkg/source"
-
-	pkgmetav1 "github.com/yndd/ndd-core/apis/pkg/meta/v1"
-	infrav1alpha1 "github.com/yndd/nddo-infrastructure/apis/infra/v1alpha1"
 	"github.com/yndd/nddo-infrastructure/internal/infra"
 	"github.com/yndd/nddo-infrastructure/internal/shared"
+	nddov1 "github.com/yndd/nddo-runtime/apis/common/v1"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/source"
+
+	"github.com/pkg/errors"
+	pkgmetav1 "github.com/yndd/ndd-core/apis/pkg/meta/v1"
+	"github.com/yndd/ndd-runtime/pkg/event"
+	"github.com/yndd/ndd-runtime/pkg/logging"
+	infrav1alpha1 "github.com/yndd/nddo-infrastructure/apis/infra/v1alpha1"
+	"github.com/yndd/nddo-runtime/pkg/reconciler/managed"
+	"github.com/yndd/nddo-runtime/pkg/resource"
 	orgv1alpha1 "github.com/yndd/nddr-organization/apis/org/v1alpha1"
 	topov1alpha1 "github.com/yndd/nddr-topology/apis/topo/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
-	finalizerName = "finalizer.infrastructure.infra.nddo.yndd.io"
-	//
+	// timers
 	reconcileTimeout = 1 * time.Minute
-	longWait         = 1 * time.Minute
-	mediumWait       = 30 * time.Second
-	shortWait        = 5 * time.Second
 	veryShortWait    = 1 * time.Second
-
-	// Errors
-	errGetK8sResource = "cannot get infra resource"
-	errUpdateStatus   = "cannot update status of infra resource"
-	errCreate         = "cannot create resource"
-	errValidate       = "cannot validate resource"
-
-	// events
-	reasonReconcileSuccess      event.Reason = "ReconcileSuccess"
-	reasonCannotDelete          event.Reason = "CannotDeleteResource"
-	reasonCannotAddFInalizer    event.Reason = "CannotAddFinalizer"
-	reasonCannotDeleteFInalizer event.Reason = "CannotDeleteFinalizer"
-	reasonCannotInitialize      event.Reason = "CannotInitializeResource"
-	reasonCannotGetAllocations  event.Reason = "CannotGetAllocations"
-	reasonAppLogicFailed        event.Reason = "ApplogicFailed"
+	// errors
+	errUnexpectedResource = "unexpected infrastructure object"
+	errGetK8sResource     = "cannot get infrastructure resource"
 )
 
-// ReconcilerOption is used to configure the Reconciler.
-type ReconcilerOption func(*Reconciler)
+// Setup adds a controller that reconciles infra.
+func Setup(mgr ctrl.Manager, o controller.Options, nddcopts *shared.NddControllerOptions) error {
+	name := "nddo/" + strings.ToLower(infrav1alpha1.InfrastructureGroupKind)
+	iffn := func() infrav1alpha1.If { return &infrav1alpha1.Infrastructure{} }
+	iflfn := func() infrav1alpha1.IfList { return &infrav1alpha1.InfrastructureList{} }
+	tplfn := func() topov1alpha1.TpList { return &topov1alpha1.TopologyList{} }
+	tnlfn := func() topov1alpha1.TnList { return &topov1alpha1.TopologyNodeList{} }
+	tnfn := func() topov1alpha1.Tn { return &topov1alpha1.TopologyNode{} }
+	tllfn := func() topov1alpha1.TlList { return &topov1alpha1.TopologyLinkList{} }
+	dplfn := func() orgv1alpha1.DpList { return &orgv1alpha1.DeploymentList{} }
+	dpfn := func() orgv1alpha1.Dp { return &orgv1alpha1.Deployment{} }
 
-// Reconciler reconciles packages.
-type Reconciler struct {
-	client  resource.ClientApplicator
-	log     logging.Logger
-	record  event.Recorder
-	managed mrManaged
+	speedy := make(map[string]int)
+
+	r := managed.NewReconciler(mgr,
+		resource.ManagedKind(infrav1alpha1.InfrastructureGroupVersionKind),
+		managed.WithLogger(nddcopts.Logger.WithValues("controller", name)),
+		managed.WithApplication(&application{
+			client: resource.ClientApplicator{
+				Client:     mgr.GetClient(),
+				Applicator: resource.NewAPIPatchingApplicator(mgr.GetClient()),
+			},
+			log:               nddcopts.Logger.WithValues("applogic", name),
+			newInfra:          iffn,
+			newInfraList:      iflfn,
+			newTopoList:       tplfn,
+			newTopoNodeList:   tnlfn,
+			newTopoNode:       tnfn,
+			newTopoLinkList:   tllfn,
+			newDeploymentList: dplfn,
+			newDeployment:     dpfn,
+			infra:             nddcopts.Infra,
+			speedy:            speedy,
+		}),
+		managed.WithSpeedy(speedy),
+		managed.WithRecorder(event.NewAPIRecorder(mgr.GetEventRecorderFor(name))),
+	)
+
+	topoHandler := &EnqueueRequestForAllTopologies{
+		client:       mgr.GetClient(),
+		log:          nddcopts.Logger,
+		ctx:          context.Background(),
+		speedy:       speedy,
+		newInfraList: iflfn,
+	}
+
+	topoNodeHandler := &EnqueueRequestForAllTopologyNodes{
+		client:       mgr.GetClient(),
+		log:          nddcopts.Logger,
+		ctx:          context.Background(),
+		speedy:       speedy,
+		newInfraList: iflfn,
+	}
+
+	topoLinkHandler := &EnqueueRequestForAllTopologyLinks{
+		client:       mgr.GetClient(),
+		log:          nddcopts.Logger,
+		ctx:          context.Background(),
+		speedy:       speedy,
+		newInfraList: iflfn,
+	}
+
+	return ctrl.NewControllerManagedBy(mgr).
+		Named(name).
+		WithOptions(o).
+		For(&infrav1alpha1.Infrastructure{}).
+		Owns(&infrav1alpha1.Infrastructure{}).
+		WithEventFilter(resource.IgnoreUpdateWithoutGenerationChangePredicate()).
+		Watches(&source.Kind{Type: &topov1alpha1.Topology{}}, topoHandler).
+		Watches(&source.Kind{Type: &topov1alpha1.TopologyNode{}}, topoNodeHandler).
+		Watches(&source.Kind{Type: &topov1alpha1.TopologyLink{}}, topoLinkHandler).
+		WithEventFilter(resource.IgnoreUpdateWithoutGenerationChangePredicate()).
+		Complete(r)
+
+}
+
+type application struct {
+	client resource.ClientApplicator
+	log    logging.Logger
 
 	newInfra          func() infrav1alpha1.If
+	newInfraList      func() infrav1alpha1.IfList
 	newTopoList       func() topov1alpha1.TpList
 	newTopoNodeList   func() topov1alpha1.TnList
 	newTopoNode       func() topov1alpha1.Tn
@@ -96,271 +149,105 @@ type Reconciler struct {
 	speedyMutex sync.Mutex
 }
 
-type mrManaged struct {
-	resource.Finalizer
+func getCrName(cr infrav1alpha1.If) string {
+	return strings.Join([]string{cr.GetNamespace(), cr.GetName()}, ".")
 }
 
-// WithLogger specifies how the Reconciler should log messages.
-func WithLogger(log logging.Logger) ReconcilerOption {
-	return func(r *Reconciler) {
-		r.log = log
-	}
-}
-
-func WithNewReourceFn(f func() infrav1alpha1.If) ReconcilerOption {
-	return func(r *Reconciler) {
-		r.newInfra = f
-	}
-}
-
-func WithNewTopoListFn(f func() topov1alpha1.TpList) ReconcilerOption {
-	return func(r *Reconciler) {
-		r.newTopoList = f
-	}
-}
-
-func WithNewTopoNodeListFn(f func() topov1alpha1.TnList) ReconcilerOption {
-	return func(r *Reconciler) {
-		r.newTopoNodeList = f
-	}
-}
-
-func WithNewTopoNodeFn(f func() topov1alpha1.Tn) ReconcilerOption {
-	return func(r *Reconciler) {
-		r.newTopoNode = f
-	}
-}
-
-func WithNewTopoLinkListFn(f func() topov1alpha1.TlList) ReconcilerOption {
-	return func(r *Reconciler) {
-		r.newTopoLinkList = f
-	}
-}
-
-func WithNewDeploymentListFn(f func() orgv1alpha1.DpList) ReconcilerOption {
-	return func(r *Reconciler) {
-		r.newDeploymentList = f
-	}
-}
-
-func WithNewDeploymentFn(f func() orgv1alpha1.Dp) ReconcilerOption {
-	return func(r *Reconciler) {
-		r.newDeployment = f
-	}
-}
-
-func WithInfra(infra map[string]infra.Infra) ReconcilerOption {
-	return func(r *Reconciler) {
-		r.infra = infra
-	}
-}
-
-// WithRecorder specifies how the Reconciler should record Kubernetes events.
-func WithRecorder(er event.Recorder) ReconcilerOption {
-	return func(r *Reconciler) {
-		r.record = er
-	}
-}
-
-func defaultMRManaged(m ctrl.Manager) mrManaged {
-	return mrManaged{
-		Finalizer: resource.NewAPIFinalizer(m.GetClient(), finalizerName),
-	}
-}
-
-// Setup adds a controller that reconciles infra.
-func Setup(mgr ctrl.Manager, o controller.Options, nddcopts *shared.NddControllerOptions) error {
-	name := "nddr/" + strings.ToLower(infrav1alpha1.InfrastructureGroupKind)
-	fn := func() infrav1alpha1.If { return &infrav1alpha1.Infrastructure{} }
-	tplfn := func() topov1alpha1.TpList { return &topov1alpha1.TopologyList{} }
-	tnlfn := func() topov1alpha1.TnList { return &topov1alpha1.TopologyNodeList{} }
-	tnfn := func() topov1alpha1.Tn { return &topov1alpha1.TopologyNode{} }
-	tllfn := func() topov1alpha1.TlList { return &topov1alpha1.TopologyLinkList{} }
-	dplfn := func() orgv1alpha1.DpList { return &orgv1alpha1.DeploymentList{} }
-	dpfn := func() orgv1alpha1.Dp { return &orgv1alpha1.Deployment{} }
-
-	r := NewReconciler(mgr,
-		WithLogger(nddcopts.Logger.WithValues("controller", name)),
-		WithNewReourceFn(fn),
-		WithNewTopoListFn(tplfn),
-		WithNewTopoNodeListFn(tnlfn),
-		WithNewTopoNodeFn(tnfn),
-		WithNewTopoLinkListFn(tllfn),
-		WithNewDeploymentListFn(dplfn),
-		WithNewDeploymentFn(dpfn),
-		WithInfra(nddcopts.Infra),
-		WithRecorder(event.NewAPIRecorder(mgr.GetEventRecorderFor(name))),
-	)
-
-	topoHandler := &EnqueueRequestForAllTopologies{
-		client: mgr.GetClient(),
-		log:    nddcopts.Logger,
-		ctx:    context.Background(),
-		speedy: r.speedy,
+func (r *application) Initialize(ctx context.Context, mg resource.Managed) error {
+	cr, ok := mg.(*infrav1alpha1.Infrastructure)
+	if !ok {
+		return errors.New(errUnexpectedResource)
 	}
 
-	topoNodeHandler := &EnqueueRequestForAllTopologyNodes{
-		client: mgr.GetClient(),
-		log:    nddcopts.Logger,
-		ctx:    context.Background(),
-		speedy: r.speedy,
-	}
-
-	topoLinkHandler := &EnqueueRequestForAllTopologyLinks{
-		client: mgr.GetClient(),
-		log:    nddcopts.Logger,
-		ctx:    context.Background(),
-		speedy: r.speedy,
-	}
-
-	return ctrl.NewControllerManagedBy(mgr).
-		Named(name).
-		WithOptions(o).
-		For(&infrav1alpha1.Infrastructure{}).
-		Owns(&infrav1alpha1.Infrastructure{}).
-		WithEventFilter(resource.IgnoreUpdateWithoutGenerationChangePredicate()).
-		Watches(&source.Kind{Type: &topov1alpha1.Topology{}}, topoHandler).
-		Watches(&source.Kind{Type: &topov1alpha1.TopologyNode{}}, topoNodeHandler).
-		Watches(&source.Kind{Type: &topov1alpha1.TopologyLink{}}, topoLinkHandler).
-		WithEventFilter(resource.IgnoreUpdateWithoutGenerationChangePredicate()).
-		Complete(r)
-}
-
-// NewReconciler creates a new reconciler.
-func NewReconciler(mgr ctrl.Manager, opts ...ReconcilerOption) *Reconciler {
-
-	r := &Reconciler{
-		//client: mgr.GetClient(),
-		client: resource.ClientApplicator{
-			Client:     mgr.GetClient(),
-			Applicator: resource.NewAPIPatchingApplicator(mgr.GetClient()),
-		},
-		log:     logging.NewNopLogger(),
-		record:  event.NewNopRecorder(),
-		managed: defaultMRManaged(mgr),
-		speedy:  make(map[string]int),
-	}
-
-	for _, f := range opts {
-		f(r)
-	}
-
-	return r
-}
-
-// Reconcile infra allocation.
-func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) { // nolint:gocyclo
-	log := r.log.WithValues("request", req)
-	log.Debug("Reconciling infra", "NameSpace", req.NamespacedName)
-
-	ctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
-	defer cancel()
-
-	cr := r.newInfra()
-	if err := r.client.Get(ctx, req.NamespacedName, cr); err != nil {
-		// There's no need to requeue if we no longer exist. Otherwise we'll be
-		// requeued implicitly because we return an error.
-		log.Debug("Cannot get managed resource", "error", err)
-		return reconcile.Result{}, errors.Wrap(resource.IgnoreNotFound(err), errGetK8sResource)
-	}
-	record := r.record.WithAnnotations("name", cr.GetAnnotations()[cr.GetName()])
-
-	crname := cr.GetName()
-
-	if meta.WasDeleted(cr) {
-		log = log.WithValues("deletion-timestamp", cr.GetDeletionTimestamp())
-
-		// TODO if something holds this back for deletion
-		//if _, ok := r.infra[crname]; ok {
-		//}
-
-		if err := r.managed.RemoveFinalizer(ctx, cr); err != nil {
-			// If this is the first time we encounter this issue we'll be
-			// requeued implicitly when we update our status with the new error
-			// condition. If not, we requeue explicitly, which will trigger
-			// backoff.
-			record.Event(cr, event.Warning(reasonCannotDeleteFInalizer, err))
-			log.Debug("Cannot remove managed resource finalizer", "error", err)
-			cr.SetConditions(nddv1.ReconcileError(err), infrav1alpha1.NotReady())
-			return reconcile.Result{Requeue: true}, errors.Wrap(r.client.Status().Update(ctx, cr), errUpdateStatus)
+	/*
+		cr := r.newInfra()
+		if err := r.client.Get(ctx, types.NamespacedName{
+			Namespace: o.GetNamespace(),
+			Name:      o.GetName(),
+		}, cr); err != nil {
+			// There's no need to requeue if we no longer exist. Otherwise we'll be
+			// requeued implicitly because we return an error.
+			r.log.Debug("Cannot get managed resource", "error", err)
+			return errors.Wrap(resource.IgnoreNotFound(err), errGetK8sResource)
 		}
-
-		// We've successfully delete our resource (if necessary) and
-		// removed our finalizer. If we assume we were the only controller that
-		// added a finalizer to this resource then it should no longer exist and
-		// thus there is no point trying to update its status.
-		log.Debug("Successfully deleted resource")
-		r.inframutex.Lock()
-		delete(r.infra, crname)
-		delete(r.speedy, crname)
-		r.inframutex.Unlock()
-		return reconcile.Result{Requeue: false}, nil
-	}
-
-	if err := r.managed.AddFinalizer(ctx, cr); err != nil {
-		// If this is the first time we encounter this issue we'll be requeued
-		// implicitly when we update our status with the new error condition. If
-		// not, we requeue explicitly, which will trigger backoff.
-		record.Event(cr, event.Warning(reasonCannotAddFInalizer, err))
-		log.Debug("Cannot add finalizer", "error", err)
-		cr.SetConditions(nddv1.ReconcileError(err), infrav1alpha1.NotReady())
-		return reconcile.Result{Requeue: true}, errors.Wrap(r.client.Status().Update(ctx, cr), errUpdateStatus)
-	}
+	*/
 
 	if err := cr.InitializeResource(); err != nil {
-		record.Event(cr, event.Warning(reasonCannotInitialize, err))
-		log.Debug("Cannot initialize", "error", err)
-		cr.SetConditions(nddv1.ReconcileError(err), infrav1alpha1.NotReady())
-		return reconcile.Result{Requeue: true}, errors.Wrap(r.client.Status().Update(ctx, cr), errUpdateStatus)
+		r.log.Debug("Cannot initialize", "error", err)
+		return err
 	}
 
-	linkNotReadyInfo, err := r.handleAppLogic(ctx, cr, crname)
-	if err != nil {
-		record.Event(cr, event.Warning(reasonAppLogicFailed, err))
-		log.Debug("handle applogic failed", "error", err)
-		cr.SetConditions(nddv1.ReconcileError(err), infrav1alpha1.NotReady())
-		return reconcile.Result{RequeueAfter: veryShortWait}, errors.Wrap(r.client.Status().Update(ctx, cr), errUpdateStatus)
-	}
-	timeout := reconcileTimeout
-	if len(linkNotReadyInfo) > 0 {
-		r.speedyMutex.Lock()
-		speedy := r.speedy[crname]
-		r.speedyMutex.Unlock()
-		if speedy <= 5 {
-			log.Debug("Speedy", "number", speedy)
-			speedy++
-			timeout = veryShortWait
-		}
-	}
-
-	cr.SetConditions(nddv1.ReconcileSuccess(), infrav1alpha1.Ready())
-	// requeue to control that someone does not change/delete the resource created by the intent reconciler
-	//r.inframutex.Lock()
-	r.infra[crname].PrintNodes(crname)
-	//r.inframutex.Unlock()
-
-	return reconcile.Result{RequeueAfter: timeout}, errors.Wrap(r.client.Status().Update(ctx, cr), errUpdateStatus)
+	return nil
 }
 
-func (r *Reconciler) handleAppLogic(ctx context.Context, cr infrav1alpha1.If, crname string) (map[string][]string, error) {
-	log := r.log.WithValues("function", "handleAppLogic", "crname", cr.GetName())
-	//log.Debug("handleAppLogic")
-
-	r.inframutex.Lock()
-	if _, ok := r.infra[crname]; !ok {
-		r.infra[crname] = infra.NewInfra()
+func (r *application) Update(ctx context.Context, mg resource.Managed) (map[string]string, error) {
+	cr, ok := mg.(*infrav1alpha1.Infrastructure)
+	if !ok {
+		return nil, errors.New(errUnexpectedResource)
 	}
-	r.inframutex.Unlock()
 
+	return r.handleAppLogic(ctx, cr)
+}
+
+func (r *application) FinalUpdate(ctx context.Context, mg resource.Managed) {
+	cr, _ := mg.(*infrav1alpha1.Infrastructure)
+	crName := getCrName(cr)
+	r.infra[crName].PrintNodes(crName)
+}
+
+func (r *application) Timeout(ctx context.Context, mg resource.Managed) time.Duration {
+	cr, _ := mg.(*infrav1alpha1.Infrastructure)
+	crName := getCrName(cr)
+	r.speedyMutex.Lock()
+	speedy := r.speedy[crName]
+	r.speedyMutex.Unlock()
+	if speedy <= 5 {
+		r.log.Debug("Speedy", "number", speedy)
+		speedy++
+		return veryShortWait
+	}
+	return reconcileTimeout
+}
+
+func (r *application) Delete(ctx context.Context, mg resource.Managed) (bool, error) {
+	return true, nil
+}
+
+func (r *application) FinalDelete(ctx context.Context, mg resource.Managed) {
+	cr, _ := mg.(*infrav1alpha1.Infrastructure)
+	crName := getCrName(cr)
+	r.inframutex.Lock()
+	delete(r.infra, crName)
+	r.inframutex.Unlock()
+	r.speedyMutex.Lock()
+	delete(r.speedy, crName)
+	r.speedyMutex.Unlock()
+}
+
+func (r *application) handleAppLogic(ctx context.Context, cr infrav1alpha1.If) (map[string]string, error) {
+	log := r.log.WithValues("function", "handleAppLogic", "crname", cr.GetName())
+	log.Debug("handleAppLogic")
+
+	crName := getCrName(cr)
 	deploymentName := strings.Join([]string{cr.GetOrganizationName(), cr.GetDeploymentName()}, ".")
 	niName := cr.GetNetworkInstanceName()
 
-	register, err := r.GetRegister(ctx, cr, deploymentName)
+	r.inframutex.Lock()
+	if _, ok := r.infra[crName]; !ok {
+		r.infra[crName] = infra.NewInfra()
+	}
+	r.inframutex.Unlock()
+
+	register, err := r.getRegister(ctx, cr, deploymentName)
 	if err != nil {
 		return nil, err
 	}
 
-	grpcServers, err := r.GetGrpcServers(ctx, cr)
+	grpcserverKeys := map[string]string{
+		"ipam":   "nddr-ipam",
+		"aspool": "nddr-aspool",
+	}
+	grpcServers, err := r.getGrpcServers(ctx, grpcserverKeys)
 	if err != nil {
 		return nil, err
 	}
@@ -378,7 +265,6 @@ func (r *Reconciler) handleAppLogic(ctx context.Context, cr infrav1alpha1.If, cr
 	for grpcServer, grpcServerDnsName := range grpcServers {
 		log.Debug("grpc server", "grpcServer", grpcServer, "grpcServerDnsName", grpcServerDnsName)
 	}
-
 	// get all link crs
 	topolinks := r.newTopoLinkList()
 	if err := r.client.List(ctx, topolinks); err != nil {
@@ -387,11 +273,14 @@ func (r *Reconciler) handleAppLogic(ctx context.Context, cr infrav1alpha1.If, cr
 
 	// get the links fromm the backend logic
 	r.inframutex.Lock()
-	links := r.infra[crname].GetLinks()
+	links := r.infra[crName].GetLinks()
 	r.inframutex.Unlock()
 
+	// keep track of the active epg links, for validation/garbage collection later on
 	activeLinks := make([]topov1alpha1.Tl, 0)
-	notReadyLinks := make(map[string][]string)
+	// keep track of the links that are not ready, it is used in the reconciler to speed up
+	// the reconciliations during changes
+	notReadyLinks := make(map[string]string)
 	for _, link := range topolinks.GetLinks() {
 		// only process topology links that are part of the deployment
 		if strings.Contains(link.GetName(), deploymentName) {
@@ -419,7 +308,7 @@ func (r *Reconciler) handleAppLogic(ctx context.Context, cr infrav1alpha1.If, cr
 						l.SetNodeName(i, ip.nodeName)
 						l.SetInterfaceName(i, ip.itfceName)
 
-						if err := r.createNode(ctx, cr, crname, ip); err != nil {
+						if err := r.createNode(ctx, cr, crName, ip); err != nil {
 							return nil, err
 						}
 						//r.validateNode(ctx, cr, crname, ip)
@@ -430,7 +319,7 @@ func (r *Reconciler) handleAppLogic(ctx context.Context, cr infrav1alpha1.If, cr
 						for i := 0; i <= 1; i++ {
 							ip := getLinkParameters(i, niName, link, register, ipamClient, aspoolClient)
 
-							itfce := r.createInterface(crname, ip)
+							itfce := r.createInterface(crName, ip)
 							// create interface in adaptor
 							if err := itfce.CreateNddaInterface(ctx, cr); err != nil {
 								return nil, err
@@ -449,21 +338,7 @@ func (r *Reconciler) handleAppLogic(ctx context.Context, cr infrav1alpha1.If, cr
 							if err != nil {
 								return nil, err
 							}
-							/*
-								if err := l.AllocateIPLink(ctx, cr, link, ipamOptions); err != nil {
-									//log.Debug(errCreate, "error", err)
-									return nil, err
-								}
-
-								linkPrefix, err := l.ValidateIPLink(ctx, cr, link, ipamOptions)
-								if err != nil {
-									//log.Debug(errValidate, "error", err)
-									return nil, err
-								}
-							*/
-
 							l.SetPrefix(af, *linkPrefix)
-
 							log.Debug("Link Prefix Allocated", "Link Name", linkName, "Prefix", *linkPrefix)
 
 							ips[af], err = parseIpPerEndPoint(*linkPrefix)
@@ -492,17 +367,6 @@ func (r *Reconciler) handleAppLogic(ctx context.Context, cr infrav1alpha1.If, cr
 								if err != nil {
 									return nil, err
 								}
-								/*
-									if err := l.AllocateIPLinkEndpoint(ctx, cr, link, ipamOptions); err != nil {
-										return nil, err
-									}
-									epPrefix, err := l.ValidateIPLinkEndpoint(ctx, cr, link, ipamOptions)
-									if err != nil {
-										//log.Debug(errValidate, "error", err)
-										return nil, err
-									}
-								*/
-								//ePrefix := string(*epPrefix)
 								lPrefix := l.GetPrefix(af)
 
 								prefix, err := parseEndpointPrefix(lPrefix, *epPrefix)
@@ -511,7 +375,7 @@ func (r *Reconciler) handleAppLogic(ctx context.Context, cr infrav1alpha1.If, cr
 								}
 								var itfce infra.Interface
 								//var ni infra.Ni
-								_, itfce, subinterfaces[i] = r.createInterfaceSubInterface(crname, ip, prefix, af)
+								_, itfce, subinterfaces[i] = r.createInterfaceSubInterface(crName, ip, prefix, af)
 								if err := itfce.CreateNddaInterface(ctx, cr); err != nil {
 									return nil, err
 								}
@@ -531,11 +395,8 @@ func (r *Reconciler) handleAppLogic(ctx context.Context, cr infrav1alpha1.If, cr
 					}
 
 				} else {
-					notReadyLinks[linkName] = make([]string, 2)
-					notReadyLinks[linkName][0] = string(link.GetCondition(nddv1.ConditionKindSynced).Status)
-					notReadyLinks[linkName][1] = string(link.GetCondition(topov1alpha1.ConditionKindReady).Status)
+					notReadyLinks[linkName] = ""
 				}
-
 			}
 		}
 	}
@@ -543,13 +404,13 @@ func (r *Reconciler) handleAppLogic(ctx context.Context, cr infrav1alpha1.If, cr
 	//log.Debug("Active Links", "activeLinks", activeLinks)
 	// if creates or deletes of toponodes/topolinks happen we need to cleanup the backend and all child
 	// resources
-	if err := r.validateBackend(ctx, cr, crname, activeLinks); err != nil {
+	if err := r.validateBackend(ctx, cr, crName, activeLinks); err != nil {
 		return nil, err
 	}
 
 	// create the network instance, since we have up to date info it is better to
 	// wait for NI creation at this stage
-	nodes := r.infra[crname].GetNodes()
+	nodes := r.infra[crName].GetNodes()
 
 	for nodeName, n := range nodes {
 		log.Debug("create node networkinstance2", "node", nodeName)
@@ -566,10 +427,14 @@ func (r *Reconciler) handleAppLogic(ctx context.Context, cr infrav1alpha1.If, cr
 		}
 	}
 
+	cr.SetOrganizationName(cr.GetOrganizationName())
+	cr.SetDeploymentName(cr.GetDeploymentName())
+	cr.SetNetworkInstanceName(cr.GetNetworkInstanceName())
+
 	return notReadyLinks, nil
 }
 
-func (r *Reconciler) createInterfaceSubInterface(crname string, ip *interfaceParameters, prefix, af string) (infra.Ni, infra.Interface, infra.SubInterface) {
+func (r *application) createInterfaceSubInterface(crname string, ip *interfaceParameters, prefix, af string) (infra.Ni, infra.Interface, infra.SubInterface) {
 	r.inframutex.Lock()
 	n := r.infra[crname].GetNodes()[ip.nodeName]
 	r.inframutex.Unlock()
@@ -617,7 +482,7 @@ func (r *Reconciler) createInterfaceSubInterface(crname string, ip *interfacePar
 	return ni, itfce, subitfce
 }
 
-func (r *Reconciler) createInterface(crname string, ip *interfaceParameters) infra.Interface {
+func (r *application) createInterface(crname string, ip *interfaceParameters) infra.Interface {
 	r.inframutex.Lock()
 	n := r.infra[crname].GetNodes()[ip.nodeName]
 	r.inframutex.Unlock()
@@ -646,7 +511,7 @@ func (r *Reconciler) createInterface(crname string, ip *interfaceParameters) inf
 	return itfce
 }
 
-func (r *Reconciler) createNode(ctx context.Context, cr infrav1alpha1.If, crname string, ip *interfaceParameters) error {
+func (r *application) createNode(ctx context.Context, cr infrav1alpha1.If, crname string, ip *interfaceParameters) error {
 	// get node from k8s api to retrieve node parameters like index for aspool
 	nodeName := strings.Join([]string{cr.GetOrganizationName(), cr.GetDeploymentName(), ip.topologyName, ip.nodeName}, ".")
 	node := r.newTopoNode()
@@ -684,18 +549,6 @@ func (r *Reconciler) createNode(ctx context.Context, cr infrav1alpha1.If, crname
 			if err != nil {
 				return err
 			}
-			/*
-				as, err := n.ValidateAS(ctx, cr, node, ip.asPoolName)
-				if err != nil {
-					if resource.IgnoreNotFound(err) != nil {
-						return err
-					}
-					if err := n.AllocateAS(ctx, cr, node, ip.asPoolName); err != nil {
-						//log.Debug(errCreate, "error", err)
-						return err
-					}
-				}
-			*/
 			n.SetAS(*as)
 		}
 	}
@@ -710,20 +563,6 @@ func (r *Reconciler) createNode(ctx context.Context, cr infrav1alpha1.If, crname
 		if err != nil {
 			return err
 		}
-
-		/*
-			prefix, err := n.ValidateLoopbackIP(ctx, cr, node, ipamOptions)
-			if err != nil {
-				if resource.IgnoreNotFound(err) != nil {
-					return err
-				}
-				if err := n.AllocateLoopbackIP(ctx, cr, node, ipamOptions); err != nil {
-					//log.Debug(errCreate, "error", err)
-					return err
-				}
-			}
-		*/
-		//lpPrefix := string(*prefix)
 
 		ip.itfceName = "system"
 		ip.kind = infra.InterfaceKindSystem
@@ -764,96 +603,7 @@ func (r *Reconciler) createNode(ctx context.Context, cr infrav1alpha1.If, crname
 	return nil
 }
 
-/*
-func (r *Reconciler) validateNode(ctx context.Context, cr infrav1alpha1.If, crname string, ip *interfaceParameters) error {
-	// get node from k8s api to retrieve node parameters like index for aspool
-	nodeName := strings.Join([]string{cr.GetOrganizationName(), cr.GetDeploymentName(), ip.topologyName, ip.nodeName}, ".")
-	node := r.newTopoNode()
-	if err := r.client.Get(ctx, types.NamespacedName{
-		Namespace: cr.GetNamespace(),
-		Name:      nodeName,
-	}, node); err != nil {
-		// There's no need to requeue if we no longer exist. Otherwise we'll be
-		// requeued implicitly because we return an error.
-		//log.Debug("Cannot get managed resource", "error", err)
-		return err
-	}
-	r.inframutex.Lock()
-	nodes := r.infra[crname].GetNodes()
-	r.inframutex.Unlock()
-	if _, ok := nodes[ip.nodeName]; !ok {
-		r.infra[crname].GetNodes()[ip.nodeName] = infra.NewNode(ip.nodeName,
-			infra.WithNodeK8sClient(r.client),
-			infra.WithNodeIpamClient(ip.ipamClient),
-			infra.WithNodeAsPoolClient(ip.aspoolClient),
-			infra.WithNodeLogger(r.log))
-	}
-	n := nodes[ip.nodeName]
-
-	for _, protocol := range cr.GetUnderlayProtocol() {
-		if protocol == string(infrav1alpha1.ProtocolEBGP) {
-			as, err := n.ValidateAS(ctx, cr, node, ip.asPoolName)
-			if err != nil {
-				//log.Debug("error validate as allocation", "error", err)
-				return err
-			}
-			n.SetAS(*as)
-		}
-	}
-
-	for _, af := range getAddressFamilies(cr.GetAddressingScheme()) {
-		ipamOptions := &infra.IpamOptions{
-			IpamName:            ip.ipamName,
-			NetworkInstanceName: ip.niName,
-			AddressFamily:       af,
-		}
-		prefix, err := n.ValidateLoopbackIP(ctx, cr, node, ipamOptions)
-		if err != nil {
-			//log.Debug("error validate prefix allocation", "error", err)
-			return err
-		}
-		lpPrefix := string(*prefix)
-
-		ip.itfceName = "system"
-		ip.kind = infra.InterfaceKindSystem
-
-		_, itfce, si := r.createInterfaceSubInterface(crname, ip, lpPrefix, af)
-		if err := itfce.CreateNddaInterface(ctx, cr); err != nil {
-			return err
-		}
-		if err := si.CreateNddaSubInterface(ctx, cr); err != nil {
-			return err
-		}
-		//if err := ni.CreateNiRegister(ctx, cr, ip.niName); err != nil {
-		//	return err
-		//}
-	}
-	var itfce infra.Interface
-	ip.itfceName = "irb"
-	ip.kind = infra.InterfaceKindIrb
-	ip.lag = false
-	ip.lagMember = false
-	ip.lacpFallback = false
-	ip.lacp = false
-
-	itfce = r.createInterface(crname, ip)
-	if err := itfce.CreateNddaInterface(ctx, cr); err != nil {
-		return err
-	}
-
-	ip.itfceName = "vxlan"
-	ip.kind = infra.InterfaceKindVxlan
-
-	itfce = r.createInterface(crname, ip)
-	if err := itfce.CreateNddaInterface(ctx, cr); err != nil {
-		return err
-	}
-
-	return nil
-}
-*/
-
-func (r *Reconciler) validateBackend(ctx context.Context, cr infrav1alpha1.If, crname string, activeLinks []topov1alpha1.Tl) error {
+func (r *application) validateBackend(ctx context.Context, cr infrav1alpha1.If, crname string, activeLinks []topov1alpha1.Tl) error {
 	// update the backend based on the active links processed
 	// validate the existing backend and update the information
 	activeNodes := make(map[string]bool)
@@ -934,8 +684,7 @@ func (r *Reconciler) validateBackend(ctx context.Context, cr infrav1alpha1.If, c
 	return nil
 }
 
-func (r *Reconciler) GetRegister(ctx context.Context, cr infrav1alpha1.If, deploymentName string) (map[string]string, error) {
-
+func (r *application) getRegister(ctx context.Context, cr infrav1alpha1.If, deploymentName string) (map[string]string, error) {
 	dep := r.newDeployment()
 	if err := r.client.Get(ctx, types.NamespacedName{
 		Namespace: cr.GetNamespace(),
@@ -954,18 +703,13 @@ func (r *Reconciler) GetRegister(ctx context.Context, cr infrav1alpha1.If, deplo
 	return dep.GetStateRegister(), nil
 }
 
-func (r *Reconciler) GetGrpcServers(ctx context.Context, cr infrav1alpha1.If) (map[string]string, error) {
+func (r *application) getGrpcServers(ctx context.Context, grpcserverKeys map[string]string) (map[string]string, error) {
 	pods := &corev1.PodList{}
 	opts := []client.ListOption{
 		client.InNamespace("ndd-system"),
 	}
 	if err := r.client.List(ctx, pods, opts...); err != nil {
 		return nil, err
-	}
-
-	grpcserverKeys := map[string]string{
-		"ipam":   "nddr-ipam",
-		"aspool": "nddr-aspool",
 	}
 
 	grpcserver := make(map[string]string)
