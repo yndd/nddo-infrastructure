@@ -24,7 +24,7 @@ import (
 	//ndddvrv1 "github.com/yndd/ndd-core/apis/dvr/v1"
 	"github.com/yndd/ndd-runtime/pkg/logging"
 	infrav1alpha1 "github.com/yndd/nddo-infrastructure/apis/infra/v1alpha1"
-	topov1alpha1 "github.com/yndd/nddr-topology/apis/topo/v1alpha1"
+	topov1alpha1 "github.com/yndd/nddr-topo-registry/apis/topo/v1alpha1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"

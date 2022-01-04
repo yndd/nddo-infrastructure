@@ -19,6 +19,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strconv"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -28,9 +29,9 @@ import (
 	networkv1alpha1 "github.com/yndd/ndda-network/apis/network/v1alpha1"
 	"github.com/yndd/nddo-grpc/resource/resourcepb"
 	infrav1alpha1 "github.com/yndd/nddo-infrastructure/apis/infra/v1alpha1"
+	nddov1 "github.com/yndd/nddo-runtime/apis/common/v1"
 	"github.com/yndd/nddo-runtime/pkg/resource"
-	aspoolv1alpha1 "github.com/yndd/nddr-as-pool/apis/aspool/v1alpha1"
-	nipoolv1alpha1 "github.com/yndd/nddr-ni-pool/apis/nipool/v1alpha1"
+	niv1alpha1 "github.com/yndd/nddr-ni-registry/apis/ni/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -63,6 +64,12 @@ func (s NiKind) String() string {
 	return "routed"
 }
 
+type NiOptions struct {
+	Namespace           string
+	RegistryName        string
+	NetworkInstanceName string
+}
+
 // InfraOption is used to configure the Infra.
 type NiOption func(*ni)
 
@@ -90,6 +97,12 @@ func WithNiAsPoolClient(c resourcepb.ResourceClient) NiOption {
 	}
 }
 
+func WithNiNiRegisterClient(c resourcepb.ResourceClient) NiOption {
+	return func(r *ni) {
+		r.niregisterClient = c
+	}
+}
+
 func NewNi(n Node, name string, opts ...NiOption) Ni {
 	i := &ni{
 		node:      n,
@@ -114,9 +127,12 @@ type Ni interface {
 
 	SetKind(NiKind)
 
-	GetNiRegister(ctx context.Context, cr infrav1alpha1.If, n string) (*string, error)
-	CreateNiRegister(ctx context.Context, cr infrav1alpha1.If, n string) error
-	DeleteNiRegister(ctx context.Context, cr infrav1alpha1.If, n string) error
+	GetNiRegister(ctx context.Context, cr infrav1alpha1.If, niOptions *NiOptions) (*string, error)
+	CreateNiRegister(ctx context.Context, cr infrav1alpha1.If, niOptions *NiOptions) error
+	DeleteNiRegister(ctx context.Context, cr infrav1alpha1.If, niOptions *NiOptions) error
+
+	GrpcAllocateNiIndex(ctx context.Context, cr infrav1alpha1.If, niOptions *NiOptions) (*uint32, error)
+	GrpcDeAllocateNiIndex(ctx context.Context, cr infrav1alpha1.If, niOptions *NiOptions) error
 
 	GetNddaNiInterfaces() []*networkv1alpha1.NetworkNetworkInstanceInterface
 	GetNddaNi(ctx context.Context, cr infrav1alpha1.If) (*string, error)
@@ -127,9 +143,10 @@ type Ni interface {
 }
 
 type ni struct {
-	client       resource.ClientApplicator
-	ipamClient   resourcepb.ResourceClient
-	aspoolClient resourcepb.ResourceClient
+	client           resource.ClientApplicator
+	ipamClient       resourcepb.ResourceClient
+	aspoolClient     resourcepb.ResourceClient
+	niregisterClient resourcepb.ResourceClient
 	//client client.Client
 	log logging.Logger
 
@@ -163,55 +180,55 @@ func (x *ni) SetKind(s NiKind) {
 	x.kind = s
 }
 
-func (x *ni) GetNiRegister(ctx context.Context, cr infrav1alpha1.If, n string) (*string, error) {
-	o := x.buildNiAlloc(cr, n)
+func (x *ni) GetNiRegister(ctx context.Context, cr infrav1alpha1.If, niOptions *NiOptions) (*string, error) {
+	o := x.buildNiRegister(cr, niOptions)
 	if err := x.client.Get(ctx, types.NamespacedName{
 		Namespace: cr.GetNamespace(), Name: o.GetName()}, o); err != nil {
 		return nil, errors.Wrap(err, errGetNetworkInstance)
 	}
-	if o.GetCondition(aspoolv1alpha1.ConditionKindReady).Status == corev1.ConditionTrue {
+	if o.GetCondition(niv1alpha1.ConditionKindReady).Status == corev1.ConditionTrue {
 		if ni, ok := o.HasNi(); ok {
-			return &ni, nil
+			nni := strconv.Itoa(int(ni))
+			return &nni, nil
 		}
 		x.log.Debug("strange NI alloc ready but no NI allocated")
 		return nil, errors.Errorf("%s: %s", errUnavailableNiAllocation, "strange NI alloc ready but no NI allocated")
 	}
-	return nil, errors.Errorf("%s: %s", errUnavailableNiAllocation, o.GetCondition(aspoolv1alpha1.ConditionKindReady).Message)
+	return nil, errors.Errorf("%s: %s", errUnavailableNiAllocation, o.GetCondition(niv1alpha1.ConditionKindReady).Message)
 }
 
-func (x *ni) CreateNiRegister(ctx context.Context, cr infrav1alpha1.If, n string) error {
-	o := x.buildNiAlloc(cr, n)
+func (x *ni) CreateNiRegister(ctx context.Context, cr infrav1alpha1.If, niOptions *NiOptions) error {
+	o := x.buildNiRegister(cr, niOptions)
 	if err := x.client.Apply(ctx, o); err != nil {
 		return errors.Wrap(err, errDeleteNetworkInstance)
 	}
 	return nil
 }
 
-func (x *ni) DeleteNiRegister(ctx context.Context, cr infrav1alpha1.If, n string) error {
-	o := x.buildNiAlloc(cr, n)
+func (x *ni) DeleteNiRegister(ctx context.Context, cr infrav1alpha1.If, niOptions *NiOptions) error {
+	o := x.buildNiRegister(cr, niOptions)
 	if err := x.client.Delete(ctx, o); err != nil {
 		return errors.Wrap(err, errDeleteNetworkInstance)
 	}
 	return nil
 }
 
-func (x *ni) buildNiAlloc(cr infrav1alpha1.If, n string) *nipoolv1alpha1.Alloc {
-	return &nipoolv1alpha1.Alloc{
+func (x *ni) buildNiRegister(cr infrav1alpha1.If, niOptions *NiOptions) *niv1alpha1.Register {
+	return &niv1alpha1.Register{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      strings.Join([]string{NiAllocPrefix, cr.GetName(), n, x.GetNode().GetName()}, "-"),
-			Namespace: cr.GetNamespace(),
+			Name:      strings.Join([]string{niOptions.RegistryName, niOptions.NetworkInstanceName, cr.GetName(), x.GetNode().GetName()}, "."),
+			Namespace: niOptions.Namespace,
 			Labels: map[string]string{
-				nipoolv1alpha1.LabelNiKey: n,
+				niv1alpha1.LabelNiKey: niOptions.NetworkInstanceName,
 			},
 			OwnerReferences: []metav1.OwnerReference{meta.AsController(meta.TypedReferenceTo(cr, infrav1alpha1.InfrastructureGroupVersionKind))},
 		},
-		Spec: nipoolv1alpha1.AllocSpec{
-			NiPoolName: utils.StringPtr("test"), // TODO We need to build a global register
-			Alloc: &nipoolv1alpha1.NipoolAlloc{
-				Selector: []*nipoolv1alpha1.NipoolAllocSelectorTag{
-					{Key: utils.StringPtr(nipoolv1alpha1.NiSelectorKey), Value: utils.StringPtr(n)},
+		Spec: niv1alpha1.RegisterSpec{
+			Register: &niv1alpha1.NiRegister{
+				Selector: []*nddov1.Tag{
+					{Key: utils.StringPtr(niv1alpha1.NiSelectorKey), Value: utils.StringPtr(niOptions.NetworkInstanceName)},
 				},
-				SourceTag: []*nipoolv1alpha1.NipoolAllocSourceTagTag{},
+				SourceTag: []*nddov1.Tag{},
 			},
 		},
 	}
@@ -263,11 +280,8 @@ func (x *ni) GetNddaNiInterfaces() []*networkv1alpha1.NetworkNetworkInstanceInte
 }
 
 func (x *ni) buildNddaNi(cr infrav1alpha1.If) *networkv1alpha1.NetworkInstance {
-	orgName := cr.GetOrganizationName()
-	depName := cr.GetDeploymentName()
-
 	objMeta := metav1.ObjectMeta{
-		Name:      strings.Join([]string{orgName, depName, x.GetName(), x.GetKind(), x.GetNode().GetName()}, "."),
+		Name:      strings.Join([]string{x.GetName(), x.GetKind(), x.GetNode().GetName()}, "."),
 		Namespace: cr.GetNamespace(),
 		Labels: map[string]string{
 			networkv1alpha1.LabelNetworkInstanceKindKey: x.GetKind(),
@@ -304,5 +318,59 @@ func (x *ni) buildNddaNi(cr infrav1alpha1.If) *networkv1alpha1.NetworkInstance {
 				},
 			},
 		}
+	}
+}
+
+func (x *ni) GrpcAllocateNiIndex(ctx context.Context, cr infrav1alpha1.If, niOptions *NiOptions) (*uint32, error) {
+	req := buildGrpcAllocateNiIndex(cr, niOptions)
+	reply, err := x.niregisterClient.ResourceRequest(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	if !reply.Ready {
+		return nil, errors.New("grppc ni registry server not ready")
+	}
+	if index, ok := reply.Data["index"]; ok {
+		indexVal, err := GetValue(index)
+		if err != nil {
+			return nil, err
+		}
+		switch index := indexVal.(type) {
+		case string:
+			idx, err := strconv.Atoi(index)
+			if err != nil {
+				return nil, err
+			}
+			return utils.Uint32Ptr(uint32(idx)), nil
+		default:
+			return nil, errors.New("wrong return data for ipam alocation")
+		}
+
+	}
+	return nil, nil
+}
+
+func (x *ni) GrpcDeAllocateNiIndex(ctx context.Context, cr infrav1alpha1.If, niOptions *NiOptions) error {
+	req := buildGrpcAllocateNiIndex(cr, niOptions)
+	_, err := x.niregisterClient.ResourceRelease(ctx, req)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func buildGrpcAllocateNiIndex(cr infrav1alpha1.If, niOptions *NiOptions) *resourcepb.Request {
+	return &resourcepb.Request{
+		Namespace:    niOptions.Namespace,
+		ResourceName: strings.Join([]string{niOptions.RegistryName, niOptions.NetworkInstanceName, cr.GetName()}, "."),
+		Kind:         "ni",
+		Request: &resourcepb.Req{
+			Selector: map[string]string{
+				niv1alpha1.NiSelectorKey: strings.Join([]string{niOptions.NetworkInstanceName}, "."),
+			},
+			SourceTag: map[string]string{
+				"infra": cr.GetName(),
+			},
+		},
 	}
 }

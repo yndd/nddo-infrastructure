@@ -1,8 +1,8 @@
 apiVersion: infra.nddo.yndd.io/v1alpha1
 kind: Infrastructure
 metadata:
-  name: nokia.region1.default
-  namespace: default
+  name: default
+  namespace: nokia.region1
 spec:
   infrastructure:
     admin-state: enable

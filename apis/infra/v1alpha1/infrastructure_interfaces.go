@@ -18,11 +18,11 @@ package v1alpha1
 
 import (
 	"reflect"
-	"strings"
 
 	nddv1 "github.com/yndd/ndd-runtime/apis/common/v1"
 	"github.com/yndd/ndd-runtime/pkg/resource"
 	"github.com/yndd/ndd-runtime/pkg/utils"
+	"github.com/yndd/nddo-runtime/pkg/odr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -80,27 +80,15 @@ func (x *Infrastructure) SetConditions(c ...nddv1.Condition) {
 }
 
 func (x *Infrastructure) GetOrganizationName() string {
-	split := strings.Split(x.GetName(), ".")
-	if len(split) >= 3 {
-		return split[0]
-	}
-	return ""
+	return odr.GetOrganizationName(x.GetNamespace())
 }
 
 func (x *Infrastructure) GetDeploymentName() string {
-	split := strings.Split(x.GetName(), ".")
-	if len(split) >= 3 {
-		return split[1]
-	}
-	return ""
+	return odr.GetDeploymentName(x.GetNamespace())
 }
 
 func (x *Infrastructure) GetNetworkInstanceName() string {
-	split := strings.Split(x.GetName(), ".")
-	if len(split) >= 3 {
-		return split[2]
-	}
-	return ""
+	return x.GetName()
 }
 
 func (x *Infrastructure) GetAdminState() string {

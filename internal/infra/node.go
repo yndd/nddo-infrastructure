@@ -28,10 +28,11 @@ import (
 	"github.com/yndd/ndd-runtime/pkg/utils"
 	"github.com/yndd/nddo-grpc/resource/resourcepb"
 	infrav1alpha1 "github.com/yndd/nddo-infrastructure/apis/infra/v1alpha1"
+	"github.com/yndd/nddo-runtime/pkg/odr"
 	"github.com/yndd/nddo-runtime/pkg/resource"
-	aspoolv1alpha1 "github.com/yndd/nddr-as-pool/apis/aspool/v1alpha1"
-	ipamv1alpha1 "github.com/yndd/nddr-ipam/apis/ipam/v1alpha1"
-	topov1alpha1 "github.com/yndd/nddr-topology/apis/topo/v1alpha1"
+	asv1alpha1 "github.com/yndd/nddr-as-registry/apis/as/v1alpha1"
+	ipamv1alpha1 "github.com/yndd/nddr-ipam-registry/apis/ipam/v1alpha1"
+	topov1alpha1 "github.com/yndd/nddr-topo-registry/apis/topo/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
@@ -92,6 +93,12 @@ func WithNodeAsPoolClient(c resourcepb.ResourceClient) NodeOption {
 	}
 }
 
+func WithNodeNiRegisterClient(c resourcepb.ResourceClient) NodeOption {
+	return func(r *node) {
+		r.niregisterClient = c
+	}
+}
+
 func NewNode(n string, opts ...NodeOption) Node {
 	i := &node{
 		name:   &n,
@@ -138,9 +145,10 @@ type Node interface {
 }
 
 type node struct {
-	client       resource.ClientApplicator
-	ipamClient   resourcepb.ResourceClient
-	aspoolClient resourcepb.ResourceClient
+	client           resource.ClientApplicator
+	ipamClient       resourcepb.ResourceClient
+	aspoolClient     resourcepb.ResourceClient
+	niregisterClient resourcepb.ResourceClient
 	//client client.Client
 	log logging.Logger
 
@@ -225,32 +233,37 @@ func (x *node) GetNis() map[string]Ni {
 
 func (x *node) GrpcAllocateAS(ctx context.Context, cr infrav1alpha1.If, tn topov1alpha1.Tn, asPoolName string) (*uint32, error) {
 	req := buildGrpcAllocateAsByIndex(cr, tn, asPoolName)
-	reply, err := x.aspoolClient.ResourceAlloc(ctx, req)
+	reply, err := x.aspoolClient.ResourceRequest(ctx, req)
 	if err != nil {
 		return nil, err
 	}
 	if !reply.Ready {
 		return nil, errors.New("grppc as pool allocation server not ready")
 	}
+	x.log.Debug("GrpcAllocateAS", "data", reply.Data)
 	if as, ok := reply.Data["as"]; ok {
 		asVal, err := GetValue(as)
 		if err != nil {
 			return nil, err
 		}
 		switch as := asVal.(type) {
-		case uint64:
-			return utils.Uint32Ptr(uint32(as)), nil
+		case string:
+			a, err := strconv.Atoi(as)
+			if err != nil {
+				return nil, err
+			}
+			return utils.Uint32Ptr(uint32(a)), nil
 		default:
 			return nil, errors.New("wrong return data for as alocation")
 		}
 
 	}
-	return nil, nil
+	return nil, errors.New("no data found in as allocation")
 }
 
 func (x *node) GrpcDeAllocateAS(ctx context.Context, cr infrav1alpha1.If, tn topov1alpha1.Tn, asPoolName string) error {
 	req := buildGrpcAllocateAsByIndex(cr, tn, asPoolName)
-	_, err := x.aspoolClient.ResourceDeAlloc(ctx, req)
+	_, err := x.aspoolClient.ResourceRelease(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -259,7 +272,7 @@ func (x *node) GrpcDeAllocateAS(ctx context.Context, cr infrav1alpha1.If, tn top
 
 func (x *node) GrpcAllocateLoopback(ctx context.Context, cr infrav1alpha1.If, tn topov1alpha1.Tn, ipamOptions *IpamOptions) (*string, error) {
 	req := buildGrpcAllocateLoopbackIP(cr, tn, ipamOptions)
-	reply, err := x.ipamClient.ResourceAlloc(ctx, req)
+	reply, err := x.ipamClient.ResourceRequest(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -277,14 +290,13 @@ func (x *node) GrpcAllocateLoopback(ctx context.Context, cr infrav1alpha1.If, tn
 		default:
 			return nil, errors.New("wrong return data for ipam alocation")
 		}
-
 	}
-	return nil, nil
+	return nil, errors.New("no data found in ip loopback allocation")
 }
 
 func (x *node) GrpcDeAllocateLoopback(ctx context.Context, cr infrav1alpha1.If, tn topov1alpha1.Tn, ipamOptions *IpamOptions) error {
 	req := buildGrpcAllocateLoopbackIP(cr, tn, ipamOptions)
-	_, err := x.ipamClient.ResourceDeAlloc(ctx, req)
+	_, err := x.ipamClient.ResourceRelease(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -322,14 +334,14 @@ func (x *node) ValidateAS(ctx context.Context, cr infrav1alpha1.If, tn topov1alp
 	if err := x.client.Get(ctx, types.NamespacedName{Namespace: cr.GetNamespace(), Name: o.GetName()}, o); err != nil {
 		return nil, errors.Wrap(err, errGetAllocAS)
 	}
-	if o.GetCondition(aspoolv1alpha1.ConditionKindReady).Status == corev1.ConditionTrue {
+	if o.GetCondition(asv1alpha1.ConditionKindReady).Status == corev1.ConditionTrue {
 		if as, ok := o.HasAs(); ok {
 			return &as, nil
 		}
 		x.log.Debug("strange AS alloc ready but no Ip prefix allocated")
 		return nil, errors.Errorf("%s: %s", errUnavailableIpamAllocation, "strange AS alloc ready but no Ip prefix allocated")
 	}
-	return nil, errors.Errorf("%s: %s", errUnavailableAsPoolAllocation, o.GetCondition(aspoolv1alpha1.ConditionKindReady).Message)
+	return nil, errors.Errorf("%s: %s", errUnavailableAsPoolAllocation, o.GetCondition(asv1alpha1.ConditionKindReady).Message)
 }
 
 func (x *node) AllocateLoopbackIP(ctx context.Context, cr infrav1alpha1.If, tn topov1alpha1.Tn, ipamOptions *IpamOptions) error {
@@ -338,23 +350,6 @@ func (x *node) AllocateLoopbackIP(ctx context.Context, cr infrav1alpha1.If, tn t
 		return errors.Wrap(err, errDeleteAllocIpam)
 	}
 	return nil
-
-	/*
-		c := buildIpamAllocLoopback(cr, tn, ipamOptions)
-		if err := x.client.Get(ctx, types.NamespacedName{
-			Namespace: cr.GetNamespace(), Name: c.GetName()}, c); err != nil {
-			if resource.IgnoreNotFound(err) != nil {
-				return errors.Wrap(err, errGetAllocIpam)
-			}
-			if err := x.client.Create(ctx, c); err != nil {
-				return errors.Wrap(err, errCreateAllocIpam)
-			}
-		}
-		if err := x.client.Update(ctx, c); err != nil {
-			return errors.Wrap(err, errUpdateAllocIpam)
-		}
-		return nil
-	*/
 }
 
 func (x *node) DeAllocateLoopbackIP(ctx context.Context, cr infrav1alpha1.If, tn topov1alpha1.Tn, ipamOptions *IpamOptions) error {
@@ -391,12 +386,15 @@ func (x *node) Print(nodeName string, n int) {
 	}
 }
 
-func buildGrpcAllocateAsByIndex(cr infrav1alpha1.If, x topov1alpha1.Tn, asPoolName string) *resourcepb.Request {
+func buildGrpcAllocateAsByIndex(cr infrav1alpha1.If, x topov1alpha1.Tn, asRegistry string) *resourcepb.Request {
+	odr := odr.GetODRFromNamespacedName(asRegistry)
+	registryname := odr.ObjectName
+	fmt.Printf("asRegistry: %s, registryname: %s, odr: %v\n", asRegistry, registryname, odr)
 	return &resourcepb.Request{
-		Namespace:    cr.GetNamespace(),
-		ResourceName: strings.Join([]string{asPoolName, x.GetNodeName()}, "."),
-		Kind:         "aspool",
-		Alloc: &resourcepb.Alloc{
+		Namespace:    odr.Namespace,
+		ResourceName: strings.Join([]string{registryname, cr.GetName(), x.GetNodeName()}, "."),
+		Kind:         "as",
+		Request: &resourcepb.Req{
 			Selector: map[string]string{
 				topov1alpha1.KeyNodeIndex: strconv.Itoa(int(x.GetNodeIndex())),
 			},
@@ -407,36 +405,14 @@ func buildGrpcAllocateAsByIndex(cr infrav1alpha1.If, x topov1alpha1.Tn, asPoolNa
 	}
 }
 
-/*
-return &aspoolv1alpha1.Alloc{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      strings.Join([]string{asPoolName, x.GetNodeName()}, "."),
-			Namespace: cr.GetNamespace(),
-			Labels: map[string]string{
-				labelPrefix: strings.Join([]string{asPoolName, x.GetNodeName()}, "."),
-			},
-			OwnerReferences: []metav1.OwnerReference{meta.AsController(meta.TypedReferenceTo(cr, infrav1alpha1.InfrastructureGroupVersionKind))},
-		},
-		Spec: aspoolv1alpha1.AllocSpec{
-			Alloc: &aspoolv1alpha1.AspoolAlloc{
-				Selector: []*nddov1.Tag{
-					{Key: utils.StringPtr(topov1alpha1.KeyNodeIndex), Value: utils.StringPtr(strconv.Itoa(int(x.GetNodeIndex())))},
-				},
-				SourceTag: []*nddov1.Tag{
-					{Key: utils.StringPtr(topov1alpha1.KeyNode), Value: utils.StringPtr(x.GetName())},
-					// TBD do we need other tags like tenant, vpc, ni
-				},
-			},
-		},
-	}
-*/
-
 func buildGrpcAllocateLoopbackIP(cr infrav1alpha1.If, x topov1alpha1.Tn, ipamOptions *IpamOptions) *resourcepb.Request {
+	odr := odr.GetODRFromNamespacedName(ipamOptions.RegistryName)
+	registryname := odr.ObjectName
 	return &resourcepb.Request{
-		Namespace:    cr.GetNamespace(),
-		ResourceName: strings.Join([]string{ipamOptions.IpamName, ipamOptions.NetworkInstanceName, x.GetNodeName(), ipamOptions.AddressFamily}, "."),
+		Namespace:    odr.Namespace,
+		ResourceName: strings.Join([]string{registryname, ipamOptions.NetworkInstanceName, cr.GetName(), x.GetNodeName(), ipamOptions.AddressFamily}, "."),
 		Kind:         "ipam",
-		Alloc: &resourcepb.Alloc{
+		Request: &resourcepb.Req{
 			Selector: map[string]string{
 				ipamv1alpha1.KeyAddressFamily: ipamOptions.AddressFamily,
 				ipamv1alpha1.KeyPurpose:       ipamv1alpha1.PurposeLoopback.String(),
@@ -447,30 +423,3 @@ func buildGrpcAllocateLoopbackIP(cr infrav1alpha1.If, x topov1alpha1.Tn, ipamOpt
 		},
 	}
 }
-
-/*
-func buildIpamAllocLoopback(cr infrav1alpha1.If, x topov1alpha1.Tn, ipamOptions *IpamOptions) *ipamv1alpha1.Alloc {
-
-	return &ipamv1alpha1.Alloc{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      strings.Join([]string{ipamOptions.IpamName, ipamOptions.NetworkInstanceName, x.GetNodeName(), ipamOptions.AddressFamily}, "."),
-			Namespace: cr.GetNamespace(),
-			//Labels: map[string]string{
-			//	labelPrefix: strings.Join([]string{allocIpamPrefix, cr.GetName(), x.GetName()}, "-"),
-			//},
-			OwnerReferences: []metav1.OwnerReference{meta.AsController(meta.TypedReferenceTo(cr, infrav1alpha1.InfrastructureGroupVersionKind))},
-		},
-		Spec: ipamv1alpha1.AllocSpec{
-			Alloc: &ipamv1alpha1.IpamAlloc{
-				Selector: []*nddov1.Tag{
-					{Key: utils.StringPtr(ipamv1alpha1.KeyAddressFamily), Value: utils.StringPtr(ipamOptions.AddressFamily)},
-					{Key: utils.StringPtr(ipamv1alpha1.KeyPurpose), Value: utils.StringPtr(ipamv1alpha1.PurposeLoopback.String())},
-				},
-				SourceTag: []*nddov1.Tag{
-					{Key: utils.StringPtr(topov1alpha1.KeyNode), Value: utils.StringPtr(x.GetName())},
-				},
-			},
-		},
-	}
-}
-*/

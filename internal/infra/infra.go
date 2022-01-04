@@ -52,6 +52,12 @@ func WithInfraAsPoolClient(c resourcepb.ResourceClient) InfraOption {
 	}
 }
 
+func WithInfraNiRegisterClient(c resourcepb.ResourceClient) InfraOption {
+	return func(r *infra) {
+		r.niregisterClient = c
+	}
+}
+
 func NewInfra(opts ...InfraOption) Infra {
 	i := &infra{
 		nodes: make(map[string]Node),
@@ -76,10 +82,11 @@ type Infra interface {
 }
 
 type infra struct {
-	client       resource.ClientApplicator
-	ipamClient   resourcepb.ResourceClient
-	aspoolClient resourcepb.ResourceClient
-	log          logging.Logger
+	client           resource.ClientApplicator
+	ipamClient       resourcepb.ResourceClient
+	aspoolClient     resourcepb.ResourceClient
+	niregisterClient resourcepb.ResourceClient
+	log              logging.Logger
 
 	nodes map[string]Node
 	links map[string]Link

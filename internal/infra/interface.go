@@ -97,6 +97,12 @@ func WithInterfaceAsPoolClient(c resourcepb.ResourceClient) InterfaceOption {
 	}
 }
 
+func WithInterfaceNiRegisterClient(c resourcepb.ResourceClient) InterfaceOption {
+	return func(r *itfce) {
+		r.niregisterClient = c
+	}
+}
+
 func NewInterface(n Node, name string, opts ...InterfaceOption) Interface {
 	i := &itfce{
 		name:          &name,
@@ -144,10 +150,11 @@ type Interface interface {
 
 type itfce struct {
 	//client client.Client
-	client       resource.ClientApplicator
-	ipamClient   resourcepb.ResourceClient
-	aspoolClient resourcepb.ResourceClient
-	log          logging.Logger
+	client           resource.ClientApplicator
+	ipamClient       resourcepb.ResourceClient
+	aspoolClient     resourcepb.ResourceClient
+	niregisterClient resourcepb.ResourceClient
+	log              logging.Logger
 
 	node          Node
 	name          *string

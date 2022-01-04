@@ -18,35 +18,35 @@ package infra2
 
 import (
 	"context"
-	"strconv"
 	"strings"
-	"sync"
 	"time"
 
+	"github.com/yndd/nddo-infrastructure/internal/handler"
 	"github.com/yndd/nddo-infrastructure/internal/infra"
 	"github.com/yndd/nddo-infrastructure/internal/shared"
-	nddov1 "github.com/yndd/nddo-runtime/apis/common/v1"
+	"github.com/yndd/nddr-org-registry/pkg/registry"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	"github.com/pkg/errors"
-	pkgmetav1 "github.com/yndd/ndd-core/apis/pkg/meta/v1"
 	"github.com/yndd/ndd-runtime/pkg/event"
 	"github.com/yndd/ndd-runtime/pkg/logging"
 	infrav1alpha1 "github.com/yndd/nddo-infrastructure/apis/infra/v1alpha1"
+	"github.com/yndd/nddo-runtime/pkg/odr"
 	"github.com/yndd/nddo-runtime/pkg/reconciler/managed"
 	"github.com/yndd/nddo-runtime/pkg/resource"
-	orgv1alpha1 "github.com/yndd/nddr-organization/apis/org/v1alpha1"
-	topov1alpha1 "github.com/yndd/nddr-topology/apis/topo/v1alpha1"
+	orgv1alpha1 "github.com/yndd/nddr-org-registry/apis/org/v1alpha1"
+	topov1alpha1 "github.com/yndd/nddr-topo-registry/apis/topo/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
 	// timers
 	reconcileTimeout = 1 * time.Minute
+	shortWait        = 5 * time.Second
 	veryShortWait    = 1 * time.Second
 	// errors
 	errUnexpectedResource = "unexpected infrastructure object"
@@ -65,8 +65,6 @@ func Setup(mgr ctrl.Manager, o controller.Options, nddcopts *shared.NddControlle
 	dplfn := func() orgv1alpha1.DpList { return &orgv1alpha1.DeploymentList{} }
 	dpfn := func() orgv1alpha1.Dp { return &orgv1alpha1.Deployment{} }
 
-	speedy := make(map[string]int)
-
 	r := managed.NewReconciler(mgr,
 		resource.ManagedKind(infrav1alpha1.InfrastructureGroupVersionKind),
 		managed.WithLogger(nddcopts.Logger.WithValues("controller", name)),
@@ -84,10 +82,9 @@ func Setup(mgr ctrl.Manager, o controller.Options, nddcopts *shared.NddControlle
 			newTopoLinkList:   tllfn,
 			newDeploymentList: dplfn,
 			newDeployment:     dpfn,
-			infra:             nddcopts.Infra,
-			speedy:            speedy,
+			handler:           nddcopts.Handler,
+			registry:          nddcopts.Registry,
 		}),
-		managed.WithSpeedy(speedy),
 		managed.WithRecorder(event.NewAPIRecorder(mgr.GetEventRecorderFor(name))),
 	)
 
@@ -95,24 +92,24 @@ func Setup(mgr ctrl.Manager, o controller.Options, nddcopts *shared.NddControlle
 		client:       mgr.GetClient(),
 		log:          nddcopts.Logger,
 		ctx:          context.Background(),
-		speedy:       speedy,
 		newInfraList: iflfn,
+		handler:      nddcopts.Handler,
 	}
 
 	topoNodeHandler := &EnqueueRequestForAllTopologyNodes{
 		client:       mgr.GetClient(),
 		log:          nddcopts.Logger,
 		ctx:          context.Background(),
-		speedy:       speedy,
 		newInfraList: iflfn,
+		handler:      nddcopts.Handler,
 	}
 
 	topoLinkHandler := &EnqueueRequestForAllTopologyLinks{
 		client:       mgr.GetClient(),
 		log:          nddcopts.Logger,
 		ctx:          context.Background(),
-		speedy:       speedy,
 		newInfraList: iflfn,
+		handler:      nddcopts.Handler,
 	}
 
 	return ctrl.NewControllerManagedBy(mgr).
@@ -142,11 +139,8 @@ type application struct {
 	newDeploymentList func() orgv1alpha1.DpList
 	newDeployment     func() orgv1alpha1.Dp
 
-	infra  map[string]infra.Infra
-	speedy map[string]int
-
-	inframutex  sync.Mutex
-	speedyMutex sync.Mutex
+	handler  handler.Handler
+	registry registry.Registry
 }
 
 func getCrName(cr infrav1alpha1.If) string {
@@ -158,19 +152,6 @@ func (r *application) Initialize(ctx context.Context, mg resource.Managed) error
 	if !ok {
 		return errors.New(errUnexpectedResource)
 	}
-
-	/*
-		cr := r.newInfra()
-		if err := r.client.Get(ctx, types.NamespacedName{
-			Namespace: o.GetNamespace(),
-			Name:      o.GetName(),
-		}, cr); err != nil {
-			// There's no need to requeue if we no longer exist. Otherwise we'll be
-			// requeued implicitly because we return an error.
-			r.log.Debug("Cannot get managed resource", "error", err)
-			return errors.Wrap(resource.IgnoreNotFound(err), errGetK8sResource)
-		}
-	*/
 
 	if err := cr.InitializeResource(); err != nil {
 		r.log.Debug("Cannot initialize", "error", err)
@@ -192,19 +173,22 @@ func (r *application) Update(ctx context.Context, mg resource.Managed) (map[stri
 func (r *application) FinalUpdate(ctx context.Context, mg resource.Managed) {
 	cr, _ := mg.(*infrav1alpha1.Infrastructure)
 	crName := getCrName(cr)
-	r.infra[crName].PrintNodes(crName)
+	r.handler.PrintInfraNodes(crName)
 }
 
 func (r *application) Timeout(ctx context.Context, mg resource.Managed) time.Duration {
 	cr, _ := mg.(*infrav1alpha1.Infrastructure)
 	crName := getCrName(cr)
-	r.speedyMutex.Lock()
-	speedy := r.speedy[crName]
-	r.speedyMutex.Unlock()
-	if speedy <= 5 {
-		r.log.Debug("Speedy", "number", speedy)
-		speedy++
-		return veryShortWait
+	speedy := r.handler.GetSpeedy(crName)
+	if speedy <= 2 {
+		r.handler.IncrementSpeedy(crName)
+		r.log.Debug("Speedy incr", "number", r.handler.GetSpeedy(crName))
+		switch speedy {
+		case 0:
+			return veryShortWait
+		case 1, 2:
+			return shortWait
+		}
 	}
 	return reconcileTimeout
 }
@@ -214,67 +198,59 @@ func (r *application) Delete(ctx context.Context, mg resource.Managed) (bool, er
 }
 
 func (r *application) FinalDelete(ctx context.Context, mg resource.Managed) {
-	cr, _ := mg.(*infrav1alpha1.Infrastructure)
+	cr, ok := mg.(*infrav1alpha1.Infrastructure)
+	if !ok {
+		return
+	}
 	crName := getCrName(cr)
-	r.inframutex.Lock()
-	delete(r.infra, crName)
-	r.inframutex.Unlock()
-	r.speedyMutex.Lock()
-	delete(r.speedy, crName)
-	r.speedyMutex.Unlock()
+	r.handler.Delete(crName)
 }
 
 func (r *application) handleAppLogic(ctx context.Context, cr infrav1alpha1.If) (map[string]string, error) {
 	log := r.log.WithValues("function", "handleAppLogic", "crname", cr.GetName())
 	log.Debug("handleAppLogic")
 
-	crName := getCrName(cr)
-	deploymentName := strings.Join([]string{cr.GetOrganizationName(), cr.GetDeploymentName()}, ".")
 	niName := cr.GetNetworkInstanceName()
 
-	r.inframutex.Lock()
-	if _, ok := r.infra[crName]; !ok {
-		r.infra[crName] = infra.NewInfra()
-	}
-	r.inframutex.Unlock()
+	// initialize speedy
+	crName := getCrName(cr)
+	r.handler.Init(crName)
 
-	register, err := r.getRegister(ctx, cr, deploymentName)
+	// TODO need to add more logic in which namespace to use
+	log.Debug("register lookup info", "namespace", odr.GetParentNameSpace(cr.GetNamespace()), "registryName", r.registry.GetRegisterName(cr.GetOrganizationName(), cr.GetDeploymentName()))
+	register, err := r.registry.GetRegister(ctx, odr.GetParentNameSpace(cr.GetNamespace()), r.registry.GetRegisterName(cr.GetOrganizationName(), cr.GetDeploymentName()))
 	if err != nil {
 		return nil, err
 	}
 
-	grpcserverKeys := map[string]string{
-		"ipam":   "nddr-ipam",
-		"aspool": "nddr-aspool",
-	}
-	grpcServers, err := r.getGrpcServers(ctx, grpcserverKeys)
+	ipamClient, err := r.registry.GetRegistryClient(ctx, registry.RegisterKindIpam.String())
 	if err != nil {
 		return nil, err
 	}
 
-	ipamClient, err := getResourceClient(ctx, grpcServers["ipam"])
+	aspoolClient, err := r.registry.GetRegistryClient(ctx, registry.RegisterKindAs.String())
 	if err != nil {
 		return nil, err
 	}
 
-	aspoolClient, err := getResourceClient(ctx, grpcServers["aspool"])
+	niregistryClient, err := r.registry.GetRegistryClient(ctx, registry.RegisterKindNi.String())
 	if err != nil {
 		return nil, err
 	}
 
-	for grpcServer, grpcServerDnsName := range grpcServers {
-		log.Debug("grpc server", "grpcServer", grpcServer, "grpcServerDnsName", grpcServerDnsName)
-	}
+	niRegistry := register[registry.RegisterKindNi.String()]
+
 	// get all link crs
 	topolinks := r.newTopoLinkList()
-	if err := r.client.List(ctx, topolinks); err != nil {
+	opts := []client.ListOption{
+		client.InNamespace(cr.GetNamespace()),
+	}
+	if err := r.client.List(ctx, topolinks, opts...); err != nil {
 		return nil, err
 	}
 
 	// get the links fromm the backend logic
-	r.inframutex.Lock()
-	links := r.infra[crName].GetLinks()
-	r.inframutex.Unlock()
+	links := r.handler.GetInfraLinks(crName)
 
 	// keep track of the active epg links, for validation/garbage collection later on
 	activeLinks := make([]topov1alpha1.Tl, 0)
@@ -283,7 +259,8 @@ func (r *application) handleAppLogic(ctx context.Context, cr infrav1alpha1.If) (
 	notReadyLinks := make(map[string]string)
 	for _, link := range topolinks.GetLinks() {
 		// only process topology links that are part of the deployment
-		if strings.Contains(link.GetName(), deploymentName) {
+		log.Debug("link", "cr-deployment-name", cr.GetDeploymentName(), "link deployment-name", link.GetDeploymentName(), "link name", link.GetName())
+		if link.GetDeploymentName() == cr.GetDeploymentName() {
 			// only process links with infra tag and non lag-members
 			if link.GetKind() == topov1alpha1.LinkEPKindInfra.String() {
 				linkName := link.GetName()
@@ -297,6 +274,7 @@ func (r *application) handleAppLogic(ctx context.Context, cr infrav1alpha1.If) (
 							infra.WithLinkK8sClient(r.client),
 							infra.WithLinkIpamClient(ipamClient),
 							infra.WithLinkAsPoolClient(aspoolClient),
+							infra.WithLinkNiRegisterClient(niregistryClient),
 							infra.WithLinkLogger(r.log),
 						)
 					}
@@ -304,7 +282,7 @@ func (r *application) handleAppLogic(ctx context.Context, cr infrav1alpha1.If) (
 
 					// validate node information
 					for i := 0; i <= 1; i++ {
-						ip := getLinkParameters(i, niName, link, register, ipamClient, aspoolClient)
+						ip := getLinkParameters(i, niName, link, register, ipamClient, aspoolClient, niregistryClient)
 						l.SetNodeName(i, ip.nodeName)
 						l.SetInterfaceName(i, ip.itfceName)
 
@@ -317,7 +295,7 @@ func (r *application) handleAppLogic(ctx context.Context, cr infrav1alpha1.If) (
 					if link.GetLagMember() {
 						// lag link members dont require ip(s, etc they are part of a lag on which the ip addresses are configured/allocated
 						for i := 0; i <= 1; i++ {
-							ip := getLinkParameters(i, niName, link, register, ipamClient, aspoolClient)
+							ip := getLinkParameters(i, niName, link, register, ipamClient, aspoolClient, niregistryClient)
 
 							itfce := r.createInterface(crName, ip)
 							// create interface in adaptor
@@ -329,7 +307,7 @@ func (r *application) handleAppLogic(ctx context.Context, cr infrav1alpha1.If) (
 						ips := make(map[string][]string)
 						for _, af := range getAddressFamilies(cr.GetAddressingScheme()) {
 							ipamOptions := &infra.IpamOptions{
-								IpamName:            register[nddov1.RegisterKindIpam.String()],
+								RegistryName:        register[registry.RegisterKindIpam.String()],
 								NetworkInstanceName: niName,
 								AddressFamily:       af,
 							}
@@ -348,7 +326,7 @@ func (r *application) handleAppLogic(ctx context.Context, cr infrav1alpha1.If) (
 						}
 						subinterfaces := make([]infra.SubInterface, 2)
 						for i := 0; i <= 1; i++ {
-							ip := getLinkParameters(i, niName, link, register, ipamClient, aspoolClient)
+							ip := getLinkParameters(i, niName, link, register, ipamClient, aspoolClient, niregistryClient)
 
 							//r.log.Debug("handleAppLogic2", "idx", i, "nodeName", ip.nodeName)
 							l.SetNodeName(i, ip.nodeName)
@@ -356,7 +334,7 @@ func (r *application) handleAppLogic(ctx context.Context, cr infrav1alpha1.If) (
 
 							for _, af := range getAddressFamilies(cr.GetAddressingScheme()) {
 								ipamOptions := &infra.IpamOptions{
-									IpamName:            ip.ipamName,
+									RegistryName:        ip.ipamRegistry,
 									NetworkInstanceName: ip.niName,
 									AddressFamily:       af,
 									IpPrefix:            ips[af][i],
@@ -404,13 +382,13 @@ func (r *application) handleAppLogic(ctx context.Context, cr infrav1alpha1.If) (
 	//log.Debug("Active Links", "activeLinks", activeLinks)
 	// if creates or deletes of toponodes/topolinks happen we need to cleanup the backend and all child
 	// resources
-	if err := r.validateBackend(ctx, cr, crName, activeLinks); err != nil {
+	if err := r.validateBackend(ctx, cr, crName, niRegistry, activeLinks); err != nil {
 		return nil, err
 	}
 
 	// create the network instance, since we have up to date info it is better to
 	// wait for NI creation at this stage
-	nodes := r.infra[crName].GetNodes()
+	nodes := r.handler.GetInfraNodes(crName)
 
 	for nodeName, n := range nodes {
 		log.Debug("create node networkinstance2", "node", nodeName)
@@ -421,7 +399,19 @@ func (r *application) handleAppLogic(ctx context.Context, cr infrav1alpha1.If) (
 				return nil, err
 			}
 			log.Debug("create node networkinstance3", "niName", ni.GetName(), "nodeName", ni.GetNode().GetName())
-			if err := ni.CreateNiRegister(ctx, cr, niName); err != nil {
+
+			odr := odr.GetODRFromNamespacedName(niRegistry)
+			niOptions := &infra.NiOptions{
+				Namespace:           odr.Namespace,
+				RegistryName:        odr.ObjectName,
+				NetworkInstanceName: niName,
+			}
+			if err := ni.CreateNiRegister(ctx, cr, niOptions); err != nil {
+				return nil, err
+			}
+
+			_, err := ni.GrpcAllocateNiIndex(ctx, cr, niOptions)
+			if err != nil {
 				return nil, err
 			}
 		}
@@ -434,15 +424,15 @@ func (r *application) handleAppLogic(ctx context.Context, cr infrav1alpha1.If) (
 	return notReadyLinks, nil
 }
 
-func (r *application) createInterfaceSubInterface(crname string, ip *interfaceParameters, prefix, af string) (infra.Ni, infra.Interface, infra.SubInterface) {
-	r.inframutex.Lock()
-	n := r.infra[crname].GetNodes()[ip.nodeName]
-	r.inframutex.Unlock()
+func (r *application) createInterfaceSubInterface(crName string, ip *interfaceParameters, prefix, af string) (infra.Ni, infra.Interface, infra.SubInterface) {
+	nodes := r.handler.GetInfraNodes(crName)
+	n := nodes[ip.nodeName]
 	if _, ok := n.GetInterfaces()[ip.itfceName]; !ok {
 		n.GetInterfaces()[ip.itfceName] = infra.NewInterface(n, ip.itfceName,
 			infra.WithInterfaceK8sClient(r.client),
 			infra.WithInterfaceIpamClient(ip.ipamClient),
 			infra.WithInterfaceAsPoolClient(ip.aspoolClient),
+			infra.WithInterfaceNiRegisterClient(ip.niregistryClient),
 			infra.WithInterfaceLogger(r.log))
 	}
 
@@ -457,6 +447,7 @@ func (r *application) createInterfaceSubInterface(crname string, ip *interfacePa
 			infra.WithSubInterfaceK8sClient(r.client),
 			infra.WithSubInterfaceIpamClient(ip.ipamClient),
 			infra.WithSubInterfaceAsPoolClient(ip.aspoolClient),
+			infra.WithSubInterfaceNiRegisterClient(ip.niregistryClient),
 			infra.WithSubInterfaceLogger(r.log))
 
 	}
@@ -473,6 +464,7 @@ func (r *application) createInterfaceSubInterface(crname string, ip *interfacePa
 			infra.WithNiK8sClient(r.client),
 			infra.WithNiIpamClient(ip.ipamClient),
 			infra.WithNiAsPoolClient(ip.aspoolClient),
+			infra.WithNiNiRegisterClient(ip.niregistryClient),
 			infra.WithNiLogger(r.log))
 	}
 	ni := n.GetNis()[ip.niName]
@@ -482,15 +474,16 @@ func (r *application) createInterfaceSubInterface(crname string, ip *interfacePa
 	return ni, itfce, subitfce
 }
 
-func (r *application) createInterface(crname string, ip *interfaceParameters) infra.Interface {
-	r.inframutex.Lock()
-	n := r.infra[crname].GetNodes()[ip.nodeName]
-	r.inframutex.Unlock()
+func (r *application) createInterface(crName string, ip *interfaceParameters) infra.Interface {
+	nodes := r.handler.GetInfraNodes(crName)
+	n := nodes[ip.nodeName]
+
 	if _, ok := n.GetInterfaces()[ip.nodeName]; !ok {
 		n.GetInterfaces()[ip.itfceName] = infra.NewInterface(n, ip.itfceName,
 			infra.WithInterfaceK8sClient(r.client),
 			infra.WithInterfaceIpamClient(ip.ipamClient),
 			infra.WithInterfaceAsPoolClient(ip.aspoolClient),
+			infra.WithInterfaceNiRegisterClient(ip.niregistryClient),
 			infra.WithInterfaceLogger(r.log))
 	}
 
@@ -511,9 +504,9 @@ func (r *application) createInterface(crname string, ip *interfaceParameters) in
 	return itfce
 }
 
-func (r *application) createNode(ctx context.Context, cr infrav1alpha1.If, crname string, ip *interfaceParameters) error {
+func (r *application) createNode(ctx context.Context, cr infrav1alpha1.If, crName string, ip *interfaceParameters) error {
 	// get node from k8s api to retrieve node parameters like index for aspool
-	nodeName := strings.Join([]string{cr.GetOrganizationName(), cr.GetDeploymentName(), ip.topologyName, ip.nodeName}, ".")
+	nodeName := strings.Join([]string{ip.topologyName, ip.nodeName}, ".")
 	node := r.newTopoNode()
 	if err := r.client.Get(ctx, types.NamespacedName{
 		Namespace: cr.GetNamespace(),
@@ -525,14 +518,13 @@ func (r *application) createNode(ctx context.Context, cr infrav1alpha1.If, crnam
 		return err
 	}
 
-	r.inframutex.Lock()
-	nodes := r.infra[crname].GetNodes()
-	r.inframutex.Unlock()
+	nodes := r.handler.GetInfraNodes(crName)
 	if _, ok := nodes[ip.nodeName]; !ok {
 		nodes[ip.nodeName] = infra.NewNode(ip.nodeName,
 			infra.WithNodeK8sClient(r.client),
 			infra.WithNodeIpamClient(ip.ipamClient),
 			infra.WithNodeAsPoolClient(ip.aspoolClient),
+			infra.WithNodeNiRegisterClient(ip.niregistryClient),
 			infra.WithNodeLogger(r.log))
 	}
 	n := nodes[ip.nodeName]
@@ -545,17 +537,18 @@ func (r *application) createNode(ctx context.Context, cr infrav1alpha1.If, crnam
 	for _, protocol := range cr.GetUnderlayProtocol() {
 		if protocol == string(infrav1alpha1.ProtocolEBGP) {
 
-			as, err := n.GrpcAllocateAS(ctx, cr, node, ip.asPoolName)
+			as, err := n.GrpcAllocateAS(ctx, cr, node, ip.asRegistry)
 			if err != nil {
 				return err
 			}
+			r.log.Debug("AS number", "as", as)
 			n.SetAS(*as)
 		}
 	}
 
 	for _, af := range getAddressFamilies(cr.GetAddressingScheme()) {
 		ipamOptions := &infra.IpamOptions{
-			IpamName:            ip.ipamName,
+			RegistryName:        ip.ipamRegistry,
 			NetworkInstanceName: ip.niName,
 			AddressFamily:       af,
 		}
@@ -567,7 +560,7 @@ func (r *application) createNode(ctx context.Context, cr infrav1alpha1.If, crnam
 		ip.itfceName = "system"
 		ip.kind = infra.InterfaceKindSystem
 
-		_, itfce, si := r.createInterfaceSubInterface(crname, ip, *lpPrefix, af)
+		_, itfce, si := r.createInterfaceSubInterface(crName, ip, *lpPrefix, af)
 		if err := itfce.CreateNddaInterface(ctx, cr); err != nil {
 			return err
 		}
@@ -587,7 +580,7 @@ func (r *application) createNode(ctx context.Context, cr infrav1alpha1.If, crnam
 	ip.lacpFallback = false
 	ip.lacp = false
 
-	itfce = r.createInterface(crname, ip)
+	itfce = r.createInterface(crName, ip)
 	if err := itfce.CreateNddaInterface(ctx, cr); err != nil {
 		return err
 	}
@@ -595,7 +588,7 @@ func (r *application) createNode(ctx context.Context, cr infrav1alpha1.If, crnam
 	ip.itfceName = "vxlan"
 	ip.kind = infra.InterfaceKindVxlan
 
-	itfce = r.createInterface(crname, ip)
+	itfce = r.createInterface(crName, ip)
 	if err := itfce.CreateNddaInterface(ctx, cr); err != nil {
 		return err
 	}
@@ -603,14 +596,13 @@ func (r *application) createNode(ctx context.Context, cr infrav1alpha1.If, crnam
 	return nil
 }
 
-func (r *application) validateBackend(ctx context.Context, cr infrav1alpha1.If, crname string, activeLinks []topov1alpha1.Tl) error {
+func (r *application) validateBackend(ctx context.Context, cr infrav1alpha1.If, crName, niRegistry string, activeLinks []topov1alpha1.Tl) error {
 	// update the backend based on the active links processed
 	// validate the existing backend and update the information
 	activeNodes := make(map[string]bool)
-	r.inframutex.Lock()
-	links := r.infra[crname].GetLinks()
-	nodes := r.infra[crname].GetNodes()
-	r.inframutex.Unlock()
+
+	links := r.handler.GetInfraLinks(crName)
+	nodes := r.handler.GetInfraNodes(crName)
 	for linkName, link := range links {
 		found := false
 		for _, activeLink := range activeLinks {
@@ -672,8 +664,15 @@ func (r *application) validateBackend(ctx context.Context, cr infrav1alpha1.If, 
 			}
 
 			// delete ni in ni register
+
 			for niName, ni := range nodes[nodeName].GetNis() {
-				if err := ni.DeleteNiRegister(ctx, cr, niName); err != nil {
+				odr := odr.GetODRFromNamespacedName(niRegistry)
+				niOptions := &infra.NiOptions{
+					Namespace:           odr.Namespace,
+					RegistryName:        odr.ObjectName,
+					NetworkInstanceName: niName,
+				}
+				if err := ni.DeleteNiRegister(ctx, cr, niOptions); err != nil {
 					return err
 				}
 			}
@@ -682,63 +681,4 @@ func (r *application) validateBackend(ctx context.Context, cr infrav1alpha1.If, 
 		}
 	}
 	return nil
-}
-
-func (r *application) getRegister(ctx context.Context, cr infrav1alpha1.If, deploymentName string) (map[string]string, error) {
-	dep := r.newDeployment()
-	if err := r.client.Get(ctx, types.NamespacedName{
-		Namespace: cr.GetNamespace(),
-		Name:      deploymentName,
-	}, dep); err != nil {
-		return nil, err
-	}
-
-	if _, ok := dep.GetStateRegister()[string(nddov1.RegisterKindIpam)]; !ok {
-		return nil, errors.New("ipam not registered")
-	}
-	if _, ok := dep.GetStateRegister()[string(nddov1.RegisterKindAs)]; !ok {
-		return nil, errors.New("as pool not registered")
-	}
-
-	return dep.GetStateRegister(), nil
-}
-
-func (r *application) getGrpcServers(ctx context.Context, grpcserverKeys map[string]string) (map[string]string, error) {
-	pods := &corev1.PodList{}
-	opts := []client.ListOption{
-		client.InNamespace("ndd-system"),
-	}
-	if err := r.client.List(ctx, pods, opts...); err != nil {
-		return nil, err
-	}
-
-	grpcserver := make(map[string]string)
-	for key, keyMatch := range grpcserverKeys {
-		found := false
-		for _, pod := range pods.Items {
-			podName := pod.GetName()
-			//r.log.Debug("pod", "podname", podName)
-			if strings.Contains(podName, keyMatch) {
-				grpcserver[key] = getGrpcServerName(podName)
-				found = true
-				break
-			}
-		}
-		if !found {
-			return nil, errors.Errorf("no grpcserver pod that matches %s, %s", key, keyMatch)
-		}
-	}
-	return grpcserver, nil
-}
-
-func getGrpcServerName(podName string) string {
-	var newName string
-	for i, s := range strings.Split(podName, "-") {
-		if i == 0 {
-			newName = s
-		} else if i <= (len(strings.Split(podName, "-")) - 3) {
-			newName += "-" + s
-		}
-	}
-	return pkgmetav1.PrefixGnmiService + "-" + newName + "." + pkgmetav1.NamespaceLocalK8sDNS + strconv.Itoa((pkgmetav1.GnmiServerPort))
 }

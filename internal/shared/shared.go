@@ -19,12 +19,14 @@ import (
 	"time"
 
 	"github.com/yndd/ndd-runtime/pkg/logging"
-	"github.com/yndd/nddo-infrastructure/internal/infra"
+	"github.com/yndd/nddo-infrastructure/internal/handler"
+	"github.com/yndd/nddr-org-registry/pkg/registry"
 )
 
 type NddControllerOptions struct {
 	Logger    logging.Logger
 	Poll      time.Duration
 	Namespace string
-	Infra     map[string]infra.Infra
+	Registry  registry.Registry
+	Handler   handler.Handler
 }

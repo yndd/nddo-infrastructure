@@ -28,8 +28,8 @@ import (
 	"github.com/yndd/ndd-runtime/pkg/event"
 	"github.com/yndd/ndd-runtime/pkg/logging"
 	"github.com/yndd/ndd-runtime/pkg/meta"
-	nddov1 "github.com/yndd/nddo-runtime/apis/common/v1"
 	"github.com/yndd/nddo-runtime/pkg/resource"
+	"github.com/yndd/nddr-org-registry/pkg/registry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -40,8 +40,8 @@ import (
 	infrav1alpha1 "github.com/yndd/nddo-infrastructure/apis/infra/v1alpha1"
 	"github.com/yndd/nddo-infrastructure/internal/infra"
 	"github.com/yndd/nddo-infrastructure/internal/shared"
-	orgv1alpha1 "github.com/yndd/nddr-organization/apis/org/v1alpha1"
-	topov1alpha1 "github.com/yndd/nddr-topology/apis/topo/v1alpha1"
+	orgv1alpha1 "github.com/yndd/nddr-org-registry/apis/org/v1alpha1"
+	topov1alpha1 "github.com/yndd/nddr-topo-registry/apis/topo/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
@@ -188,7 +188,7 @@ func Setup(mgr ctrl.Manager, o controller.Options, nddcopts *shared.NddControlle
 		WithNewTopoLinkListFn(tllfn),
 		WithNewDeploymentListFn(dplfn),
 		WithNewDeploymentFn(dpfn),
-		WithInfra(nddcopts.Infra),
+		//WithInfra(nddcopts.Infra),
 		WithRecorder(event.NewAPIRecorder(mgr.GetEventRecorderFor(name))),
 	)
 
@@ -440,7 +440,7 @@ func (r *Reconciler) handleAppLogic(ctx context.Context, cr infrav1alpha1.If, cr
 						ips := make(map[string][]string)
 						for _, af := range getAddressFamilies(cr.GetAddressingScheme()) {
 							ipamOptions := &infra.IpamOptions{
-								IpamName:            register[nddov1.RegisterKindIpam.String()],
+								RegistryName:        register[registry.RegisterKindIpam.String()],
 								NetworkInstanceName: niName,
 								AddressFamily:       af,
 							}
@@ -481,7 +481,7 @@ func (r *Reconciler) handleAppLogic(ctx context.Context, cr infrav1alpha1.If, cr
 
 							for _, af := range getAddressFamilies(cr.GetAddressingScheme()) {
 								ipamOptions := &infra.IpamOptions{
-									IpamName:            ip.ipamName,
+									RegistryName:        ip.ipamName,
 									NetworkInstanceName: ip.niName,
 									AddressFamily:       af,
 									IpPrefix:            ips[af][i],
@@ -560,7 +560,10 @@ func (r *Reconciler) handleAppLogic(ctx context.Context, cr infrav1alpha1.If, cr
 				return nil, err
 			}
 			log.Debug("create node networkinstance3", "niName", ni.GetName(), "nodeName", ni.GetNode().GetName())
-			if err := ni.CreateNiRegister(ctx, cr, niName); err != nil {
+			niOptions := &infra.NiOptions{
+				NetworkInstanceName: niName,
+			}
+			if err := ni.CreateNiRegister(ctx, cr, niOptions); err != nil {
 				return nil, err
 			}
 		}
@@ -702,7 +705,7 @@ func (r *Reconciler) createNode(ctx context.Context, cr infrav1alpha1.If, crname
 
 	for _, af := range getAddressFamilies(cr.GetAddressingScheme()) {
 		ipamOptions := &infra.IpamOptions{
-			IpamName:            ip.ipamName,
+			RegistryName:        ip.ipamName,
 			NetworkInstanceName: ip.niName,
 			AddressFamily:       af,
 		}
@@ -923,7 +926,10 @@ func (r *Reconciler) validateBackend(ctx context.Context, cr infrav1alpha1.If, c
 
 			// delete ni in ni register
 			for niName, ni := range nodes[nodeName].GetNis() {
-				if err := ni.DeleteNiRegister(ctx, cr, niName); err != nil {
+				niOptions := &infra.NiOptions{
+					NetworkInstanceName: niName,
+				}
+				if err := ni.DeleteNiRegister(ctx, cr, niOptions); err != nil {
 					return err
 				}
 			}
@@ -944,10 +950,10 @@ func (r *Reconciler) GetRegister(ctx context.Context, cr infrav1alpha1.If, deplo
 		return nil, err
 	}
 
-	if _, ok := dep.GetStateRegister()[string(nddov1.RegisterKindIpam)]; !ok {
+	if _, ok := dep.GetStateRegister()[string(registry.RegisterKindIpam)]; !ok {
 		return nil, errors.New("ipam not registered")
 	}
-	if _, ok := dep.GetStateRegister()[string(nddov1.RegisterKindAs)]; !ok {
+	if _, ok := dep.GetStateRegister()[string(registry.RegisterKindAs)]; !ok {
 		return nil, errors.New("as pool not registered")
 	}
 

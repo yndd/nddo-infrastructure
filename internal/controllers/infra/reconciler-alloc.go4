@@ -37,8 +37,8 @@ import (
 	infrav1alpha1 "github.com/yndd/nddo-infrastructure/apis/infra/v1alpha1"
 	"github.com/yndd/nddo-infrastructure/internal/infra"
 	"github.com/yndd/nddo-infrastructure/internal/shared"
-	orgv1alpha1 "github.com/yndd/nddr-organization/apis/org/v1alpha1"
-	topov1alpha1 "github.com/yndd/nddr-topology/apis/topo/v1alpha1"
+	orgv1alpha1 "github.com/yndd/nddr-org-registry/apis/org/v1alpha1"
+	topov1alpha1 "github.com/yndd/nddr-topo-registry/apis/topo/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 )

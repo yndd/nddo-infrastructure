@@ -18,13 +18,12 @@ package infra2
 
 import (
 	"context"
-	"strings"
-	"sync"
 
 	//ndddvrv1 "github.com/yndd/ndd-core/apis/dvr/v1"
 	"github.com/yndd/ndd-runtime/pkg/logging"
 	infrav1alpha1 "github.com/yndd/nddo-infrastructure/apis/infra/v1alpha1"
-	topov1alpha1 "github.com/yndd/nddr-topology/apis/topo/v1alpha1"
+	"github.com/yndd/nddo-infrastructure/internal/handler"
+	topov1alpha1 "github.com/yndd/nddr-topo-registry/apis/topo/v1alpha1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
@@ -38,8 +37,7 @@ type EnqueueRequestForAllTopologyNodes struct {
 	log    logging.Logger
 	ctx    context.Context
 
-	speedy map[string]int
-	mutex  sync.Mutex
+	handler handler.Handler
 
 	newInfraList func() infrav1alpha1.IfList
 }
@@ -74,23 +72,22 @@ func (e *EnqueueRequestForAllTopologyNodes) add(obj runtime.Object, queue adder)
 	log.Debug("infra handleEvent")
 
 	d := e.newInfraList()
-	if err := e.client.List(e.ctx, d); err != nil {
+	opts := []client.ListOption{
+		client.InNamespace(dd.GetNamespace()),
+	}
+	if err := e.client.List(e.ctx, d, opts...); err != nil {
 		return
 	}
 
 	for _, infra := range d.GetInfrastructures() {
-		deploymentName := strings.Join([]string{infra.GetOrganizationName(), infra.GetDeploymentName()}, ".")
-		// only enqueue if the topology name match
-		if strings.Contains(dd.GetName(), deploymentName) {
+		// only enqueue if the namespace name match
+		if infra.GetNamespace() == dd.GetNamespace() {
 
-			crname := infra.GetName()
-
-			e.mutex.Lock()
-			e.speedy[crname] = 0
-			e.mutex.Unlock()
+			crName := getCrName(infra)
+			e.handler.ResetSpeedy(crName)
 
 			queue.Add(reconcile.Request{NamespacedName: types.NamespacedName{
-				Namespace: dd.GetNamespace(),
+				Namespace: infra.GetNamespace(),
 				Name:      infra.GetName()}})
 		}
 	}

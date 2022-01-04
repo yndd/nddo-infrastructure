@@ -30,9 +30,10 @@ import (
 
 	"github.com/yndd/ndd-runtime/pkg/logging"
 	"github.com/yndd/ndd-runtime/pkg/ratelimiter"
+	"github.com/yndd/nddr-org-registry/pkg/registry"
 
 	"github.com/yndd/nddo-infrastructure/internal/controllers"
-	"github.com/yndd/nddo-infrastructure/internal/infra"
+	"github.com/yndd/nddo-infrastructure/internal/handler"
 
 	"github.com/yndd/nddo-infrastructure/internal/shared"
 )
@@ -76,11 +77,23 @@ var startCmd = &cobra.Command{
 			return errors.Wrap(err, "Cannot create manager")
 		}
 
+		handler, err := handler.New(
+			handler.WithLogger(logging.NewLogrLogger(zlog.WithName("handler"))),
+			handler.WithClient(mgr.GetClient()),
+		)
+		if err != nil {
+			return errors.Wrap(err, "cannot initialize the handler")
+		}
+
 		nddcopts := &shared.NddControllerOptions{
 			Logger:    logging.NewLogrLogger(zlog.WithName("infra")),
 			Poll:      pollInterval,
 			Namespace: namespace,
-			Infra:     make(map[string]infra.Infra),
+			Handler:   handler,
+			Registry: registry.New(
+				registry.WithLogger(logging.NewLogrLogger(zlog.WithName("registry"))),
+				registry.WithClient(mgr.GetClient()),
+			),
 		}
 
 		// initialize controllers

@@ -52,6 +52,12 @@ func WithAddressAsPoolClient(c resourcepb.ResourceClient) AddressOption {
 	}
 }
 
+func WithAddressNiRegisterClient(c resourcepb.ResourceClient) AddressOption {
+	return func(r *addressInfo) {
+		r.niregisterClient = c
+	}
+}
+
 func NewAddressInfo(opts ...AddressOption) AddressInfo {
 	i := &addressInfo{}
 
@@ -75,10 +81,11 @@ type AddressInfo interface {
 }
 
 type addressInfo struct {
-	client       resource.ClientApplicator
-	ipamClient   resourcepb.ResourceClient
-	aspoolClient resourcepb.ResourceClient
-	log          logging.Logger
+	client           resource.ClientApplicator
+	ipamClient       resourcepb.ResourceClient
+	aspoolClient     resourcepb.ResourceClient
+	niregisterClient resourcepb.ResourceClient
+	log              logging.Logger
 
 	prefix       *string
 	address      *string

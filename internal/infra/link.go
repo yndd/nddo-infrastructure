@@ -24,9 +24,10 @@ import (
 	"github.com/yndd/ndd-runtime/pkg/utils"
 	"github.com/yndd/nddo-grpc/resource/resourcepb"
 	infrav1alpha1 "github.com/yndd/nddo-infrastructure/apis/infra/v1alpha1"
+	"github.com/yndd/nddo-runtime/pkg/odr"
 	"github.com/yndd/nddo-runtime/pkg/resource"
-	ipamv1alpha1 "github.com/yndd/nddr-ipam/apis/ipam/v1alpha1"
-	topov1alpha1 "github.com/yndd/nddr-topology/apis/topo/v1alpha1"
+	ipamv1alpha1 "github.com/yndd/nddr-ipam-registry/apis/ipam/v1alpha1"
+	topov1alpha1 "github.com/yndd/nddr-topo-registry/apis/topo/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
@@ -55,6 +56,12 @@ func WithLinkIpamClient(c resourcepb.ResourceClient) LinkOption {
 func WithLinkAsPoolClient(c resourcepb.ResourceClient) LinkOption {
 	return func(r *link) {
 		r.aspoolClient = c
+	}
+}
+
+func WithLinkNiRegisterClient(c resourcepb.ResourceClient) LinkOption {
+	return func(r *link) {
+		r.niregisterClient = c
 	}
 }
 
@@ -100,9 +107,10 @@ type Link interface {
 }
 
 type link struct {
-	client       resource.ClientApplicator
-	ipamClient   resourcepb.ResourceClient
-	aspoolClient resourcepb.ResourceClient
+	client           resource.ClientApplicator
+	ipamClient       resourcepb.ResourceClient
+	aspoolClient     resourcepb.ResourceClient
+	niregisterClient resourcepb.ResourceClient
 	//client client.Client
 	log logging.Logger
 
@@ -172,7 +180,7 @@ func (x *link) SetInterfaceName(idx int, s string) {
 
 func (x *link) GrpcAllocateLinkIP(ctx context.Context, cr infrav1alpha1.If, tl topov1alpha1.Tl, ipamOptions *IpamOptions) (*string, error) {
 	req := buildGrpcAllocateLinkIP(cr, tl, ipamOptions)
-	reply, err := x.ipamClient.ResourceAlloc(ctx, req)
+	reply, err := x.ipamClient.ResourceRequest(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -197,7 +205,7 @@ func (x *link) GrpcAllocateLinkIP(ctx context.Context, cr infrav1alpha1.If, tl t
 
 func (x *link) GrpcDeAllocateLinkIP(ctx context.Context, cr infrav1alpha1.If, tl topov1alpha1.Tl, ipamOptions *IpamOptions) error {
 	req := buildGrpcAllocateLinkIP(cr, tl, ipamOptions)
-	_, err := x.ipamClient.ResourceDeAlloc(ctx, req)
+	_, err := x.ipamClient.ResourceRelease(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -237,7 +245,7 @@ func (x *link) ValidateIPLink(ctx context.Context, cr infrav1alpha1.If, tl topov
 
 func (x *link) GrpcAllocateEndpointIP(ctx context.Context, cr infrav1alpha1.If, tl topov1alpha1.Tl, ipamOptions *IpamOptions) (*string, error) {
 	req := buildGrpcAllocateEndPointIP(cr, tl, ipamOptions)
-	reply, err := x.ipamClient.ResourceAlloc(ctx, req)
+	reply, err := x.ipamClient.ResourceRequest(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -262,7 +270,7 @@ func (x *link) GrpcAllocateEndpointIP(ctx context.Context, cr infrav1alpha1.If, 
 
 func (x *link) GrpcDeAllocateEndpointIP(ctx context.Context, cr infrav1alpha1.If, tl topov1alpha1.Tl, ipamOptions *IpamOptions) error {
 	req := buildGrpcAllocateEndPointIP(cr, tl, ipamOptions)
-	_, err := x.ipamClient.ResourceDeAlloc(ctx, req)
+	_, err := x.ipamClient.ResourceRelease(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -301,11 +309,14 @@ func (x *link) ValidateIPLinkEndpoint(ctx context.Context, cr infrav1alpha1.If, 
 }
 
 func buildGrpcAllocateLinkIP(cr infrav1alpha1.If, x topov1alpha1.Tl, ipamOptions *IpamOptions) *resourcepb.Request {
+	odr := odr.GetODRFromNamespacedName(ipamOptions.RegistryName)
+	ipamName := odr.ObjectName
+	niName := ipamOptions.NetworkInstanceName
 	return &resourcepb.Request{
-		Namespace:    cr.GetNamespace(),
-		ResourceName: strings.Join([]string{ipamOptions.IpamName, ipamOptions.NetworkInstanceName, x.GetLinkName(), ipamOptions.AddressFamily}, "."),
+		Namespace:    odr.Namespace,
+		ResourceName: strings.Join([]string{ipamName, niName, cr.GetName(), x.GetLinkName(), ipamOptions.AddressFamily}, "."),
 		Kind:         "ipam",
-		Alloc: &resourcepb.Alloc{
+		Request: &resourcepb.Req{
 			Selector: map[string]string{
 				ipamv1alpha1.KeyAddressFamily: ipamOptions.AddressFamily,
 				ipamv1alpha1.KeyPurpose:       ipamv1alpha1.PurposeIsl.String(),
@@ -358,11 +369,14 @@ func buildGrpcAllocateEndPointIP(cr infrav1alpha1.If, x topov1alpha1.Tl, ipamOpt
 		itfcename = x.GetEndpointBInterfaceName()
 	}
 
+	odr := odr.GetODRFromNamespacedName(ipamOptions.RegistryName)
+	ipamName := odr.ObjectName
+	niName := ipamOptions.NetworkInstanceName
 	return &resourcepb.Request{
-		Namespace:    cr.GetNamespace(),
-		ResourceName: strings.Join([]string{ipamOptions.IpamName, ipamOptions.NetworkInstanceName, x.GetLinkName(), nodeName, ipamOptions.AddressFamily}, "."),
+		Namespace:    odr.Namespace,
+		ResourceName: strings.Join([]string{ipamName, niName, cr.GetName(), x.GetLinkName(), nodeName, ipamOptions.AddressFamily}, "."),
 		Kind:         "ipam",
-		Alloc: &resourcepb.Alloc{
+		Request: &resourcepb.Req{
 			IpPrefix: ipamOptions.IpPrefix,
 			Selector: map[string]string{
 				ipamv1alpha1.KeyAddressFamily: ipamOptions.AddressFamily,

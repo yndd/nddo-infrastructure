@@ -57,23 +57,3 @@ func NotReady() nddv1.Condition {
 		Reason:             ConditionReasonNotReady,
 	}
 }
-
-// Allocating indicates that the resource is being allocated
-func Allocating() nddv1.Condition {
-	return nddv1.Condition{
-		Kind:               ConditionKindAllocationReady,
-		Status:             corev1.ConditionFalse,
-		LastTransitionTime: metav1.Now(),
-		Reason:             ConditionReasonAllocating,
-	}
-}
-
-// DeAllocating indicates that the resource is being deallocated.
-func DeAllocating() nddv1.Condition {
-	return nddv1.Condition{
-		Kind:               ConditionKindAllocationReady,
-		Status:             corev1.ConditionFalse,
-		LastTransitionTime: metav1.Now(),
-		Reason:             ConditionReasonDeAllocating,
-	}
-}

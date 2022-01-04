@@ -23,9 +23,9 @@ import (
 	"github.com/yndd/nddo-grpc/resource/resourcepb"
 	infrav1alpha1 "github.com/yndd/nddo-infrastructure/apis/infra/v1alpha1"
 	"github.com/yndd/nddo-infrastructure/internal/infra"
-	nddov1 "github.com/yndd/nddo-runtime/apis/common/v1"
-	ipamv1alpha1 "github.com/yndd/nddr-ipam/apis/ipam/v1alpha1"
-	topov1alpha1 "github.com/yndd/nddr-topology/apis/topo/v1alpha1"
+	ipamv1alpha1 "github.com/yndd/nddr-ipam-registry/apis/ipam/v1alpha1"
+	"github.com/yndd/nddr-org-registry/pkg/registry"
+	topov1alpha1 "github.com/yndd/nddr-topo-registry/apis/topo/v1alpha1"
 	"inet.af/netaddr"
 )
 
@@ -48,14 +48,15 @@ type interfaceParameters struct {
 	tags map[string]string
 	// references
 	topologyName string
-	asPoolName   string
-	ipamName     string
+	asRegistry   string
+	ipamRegistry string
 	//client
-	ipamClient   resourcepb.ResourceClient
-	aspoolClient resourcepb.ResourceClient
+	ipamClient       resourcepb.ResourceClient
+	aspoolClient     resourcepb.ResourceClient
+	niregistryClient resourcepb.ResourceClient
 }
 
-func getLinkParameters(i int, niName string, link topov1alpha1.Tl, register map[string]string, ipamClient, aspoolClient resourcepb.ResourceClient) *interfaceParameters {
+func getLinkParameters(i int, niName string, link topov1alpha1.Tl, register map[string]string, ipamClient, aspoolClient, niregistryClient resourcepb.ResourceClient) *interfaceParameters {
 	switch i {
 	case 0:
 		ip := &interfaceParameters{
@@ -73,12 +74,13 @@ func getLinkParameters(i int, niName string, link topov1alpha1.Tl, register map[
 			niIndex: "0",
 			//mh:           link.GetEndPointAMultiHoming(),
 			//mhName:       link.GetEndPointAMultiHomingName(),
-			tags:         link.GetEndpointATag(),
-			topologyName: link.GetTopologyName(),
-			asPoolName:   register[nddov1.RegisterKindAs.String()],
-			ipamName:     register[nddov1.RegisterKindIpam.String()],
-			ipamClient:   ipamClient,
-			aspoolClient: aspoolClient,
+			tags:             link.GetEndpointATag(),
+			topologyName:     link.GetTopologyName(),
+			asRegistry:       register[registry.RegisterKindAs.String()],
+			ipamRegistry:     register[registry.RegisterKindIpam.String()],
+			ipamClient:       ipamClient,
+			aspoolClient:     aspoolClient,
+			niregistryClient: niregistryClient,
 		}
 		return ip
 	case 1:
@@ -97,12 +99,13 @@ func getLinkParameters(i int, niName string, link topov1alpha1.Tl, register map[
 			niIndex: "0",
 			//mh:           link.GetEndPointBMultiHoming(),
 			//mhName:       link.GetEndPointBMultiHomingName(),
-			tags:         link.GetEndpointATag(),
-			topologyName: link.GetTopologyName(),
-			asPoolName:   register[nddov1.RegisterKindAs.String()],
-			ipamName:     register[nddov1.RegisterKindIpam.String()],
-			ipamClient:   ipamClient,
-			aspoolClient: aspoolClient,
+			tags:             link.GetEndpointATag(),
+			topologyName:     link.GetTopologyName(),
+			asRegistry:       register[registry.RegisterKindAs.String()],
+			ipamRegistry:     register[registry.RegisterKindIpam.String()],
+			ipamClient:       ipamClient,
+			aspoolClient:     aspoolClient,
+			niregistryClient: niregistryClient,
 		}
 		return ip
 	}

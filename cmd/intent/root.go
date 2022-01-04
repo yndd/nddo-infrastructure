@@ -29,11 +29,11 @@ import (
 	//infrav1alpha1 "github.com/yndd/nddo-infrastructure/apis/infra/v1alpha1"
 	networkv1alpha1 "github.com/yndd/ndda-network/apis/network/v1alpha1"
 	infrav1alpha1 "github.com/yndd/nddo-infrastructure/apis/infra/v1alpha1"
-	aspoolv1alpha1 "github.com/yndd/nddr-as-pool/apis/aspool/v1alpha1"
+	asv1alpha1 "github.com/yndd/nddr-as-registry/apis/as/v1alpha1"
 	ipamv1alpha1 "github.com/yndd/nddr-ipam/apis/ipam/v1alpha1"
-	nipoolv1alpha1 "github.com/yndd/nddr-ni-pool/apis/nipool/v1alpha1"
-	orgv1alpha1 "github.com/yndd/nddr-organization/apis/org/v1alpha1"
-	topov1alpha1 "github.com/yndd/nddr-topology/apis/topo/v1alpha1"
+	niv1alpha1 "github.com/yndd/nddr-ni-registry/apis/ni/v1alpha1"
+	orgv1alpha1 "github.com/yndd/nddr-org-registry/apis/org/v1alpha1"
+	topov1alpha1 "github.com/yndd/nddr-topo-registry/apis/topo/v1alpha1"
 	//apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	//+kubebuilder:scaffold:imports
 )
@@ -67,10 +67,10 @@ func init() {
 	utilruntime.Must(orgv1alpha1.AddToScheme(scheme))
 	utilruntime.Must(infrav1alpha1.AddToScheme(scheme))
 	utilruntime.Must(topov1alpha1.AddToScheme(scheme))
-	utilruntime.Must(aspoolv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(asv1alpha1.AddToScheme(scheme))
 	utilruntime.Must(ipamv1alpha1.AddToScheme(scheme))
 	utilruntime.Must(networkv1alpha1.AddToScheme(scheme))
-	utilruntime.Must(nipoolv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(niv1alpha1.AddToScheme(scheme))
 
 	//utilruntime.Must(apiextensionsv1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme

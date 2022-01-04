@@ -23,8 +23,9 @@ import (
 	"github.com/yndd/ndd-runtime/pkg/utils"
 	infrav1alpha1 "github.com/yndd/nddo-infrastructure/apis/infra/v1alpha1"
 	nddov1 "github.com/yndd/nddo-runtime/apis/common/v1"
-	ipamv1alpha1 "github.com/yndd/nddr-ipam/apis/ipam/v1alpha1"
-	topov1alpha1 "github.com/yndd/nddr-topology/apis/topo/v1alpha1"
+	"github.com/yndd/nddo-runtime/pkg/odr"
+	ipamv1alpha1 "github.com/yndd/nddr-ipam-registry/apis/ipam/v1alpha1"
+	topov1alpha1 "github.com/yndd/nddr-topo-registry/apis/topo/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -38,26 +39,28 @@ const (
 // puprose, loopback need to be identified -> best in ipam
 
 type IpamOptions struct {
-	IpamName            string
+	RegistryName        string
 	NetworkInstanceName string
 	AddressFamily       string
 	IpPrefix            string
 	EpIndex             int
 }
 
-func buildIpamAllocLoopback(cr infrav1alpha1.If, x topov1alpha1.Tn, ipamOptions *IpamOptions) *ipamv1alpha1.Alloc {
-
-	return &ipamv1alpha1.Alloc{
+func buildIpamAllocLoopback(cr infrav1alpha1.If, x topov1alpha1.Tn, ipamOptions *IpamOptions) *ipamv1alpha1.Register {
+	odr := odr.GetODRFromNamespacedName(ipamOptions.RegistryName)
+	ipamName := odr.ObjectName
+	niName := ipamOptions.NetworkInstanceName
+	return &ipamv1alpha1.Register{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      strings.Join([]string{ipamOptions.IpamName, ipamOptions.NetworkInstanceName, x.GetNodeName(), ipamOptions.AddressFamily}, "."),
-			Namespace: cr.GetNamespace(),
+			Name:      strings.Join([]string{ipamName, niName, cr.GetName(), x.GetNodeName(), ipamOptions.AddressFamily}, "."),
+			Namespace: odr.Namespace,
 			//Labels: map[string]string{
 			//	labelPrefix: strings.Join([]string{allocIpamPrefix, cr.GetName(), x.GetName()}, "-"),
 			//},
 			OwnerReferences: []metav1.OwnerReference{meta.AsController(meta.TypedReferenceTo(cr, infrav1alpha1.InfrastructureGroupVersionKind))},
 		},
-		Spec: ipamv1alpha1.AllocSpec{
-			Alloc: &ipamv1alpha1.IpamAlloc{
+		Spec: ipamv1alpha1.RegisterSpec{
+			Register: &ipamv1alpha1.IpamRegister{
 				Selector: []*nddov1.Tag{
 					{Key: utils.StringPtr(ipamv1alpha1.KeyAddressFamily), Value: utils.StringPtr(ipamOptions.AddressFamily)},
 					{Key: utils.StringPtr(ipamv1alpha1.KeyPurpose), Value: utils.StringPtr(ipamv1alpha1.PurposeLoopback.String())},
@@ -70,18 +73,21 @@ func buildIpamAllocLoopback(cr infrav1alpha1.If, x topov1alpha1.Tn, ipamOptions 
 	}
 }
 
-func buildIpamAllocLink(cr infrav1alpha1.If, x topov1alpha1.Tl, ipamOptions *IpamOptions) *ipamv1alpha1.Alloc {
-	return &ipamv1alpha1.Alloc{
+func buildIpamAllocLink(cr infrav1alpha1.If, x topov1alpha1.Tl, ipamOptions *IpamOptions) *ipamv1alpha1.Register {
+	odr := odr.GetODRFromNamespacedName(ipamOptions.RegistryName)
+	ipamName := odr.ObjectName
+	niName := ipamOptions.NetworkInstanceName
+	return &ipamv1alpha1.Register{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      strings.Join([]string{ipamOptions.IpamName, ipamOptions.NetworkInstanceName, x.GetLinkName(), ipamOptions.AddressFamily}, "."),
-			Namespace: cr.GetNamespace(),
+			Name:      strings.Join([]string{ipamName, niName, cr.GetName(), x.GetLinkName(), ipamOptions.AddressFamily}, "."),
+			Namespace: odr.Namespace,
 			//Labels: map[string]string{
 			//	labelPrefix: strings.Join([]string{ipamOptions.IpamName, ipamOptions.NetworkInstanceName, x.GetLinkName(), ipamOptions.AddressFamily}, "."),
 			//},
 			OwnerReferences: []metav1.OwnerReference{meta.AsController(meta.TypedReferenceTo(cr, infrav1alpha1.InfrastructureGroupVersionKind))},
 		},
-		Spec: ipamv1alpha1.AllocSpec{
-			Alloc: &ipamv1alpha1.IpamAlloc{
+		Spec: ipamv1alpha1.RegisterSpec{
+			Register: &ipamv1alpha1.IpamRegister{
 				Selector: []*nddov1.Tag{
 					{Key: utils.StringPtr(ipamv1alpha1.KeyAddressFamily), Value: utils.StringPtr(ipamOptions.AddressFamily)},
 					{Key: utils.StringPtr(ipamv1alpha1.KeyPurpose), Value: utils.StringPtr(ipamv1alpha1.PurposeIsl.String())},
@@ -95,7 +101,7 @@ func buildIpamAllocLink(cr infrav1alpha1.If, x topov1alpha1.Tl, ipamOptions *Ipa
 	}
 }
 
-func buildIpamAllocEndPoint(cr infrav1alpha1.If, x topov1alpha1.Tl, ipamOptions *IpamOptions) *ipamv1alpha1.Alloc {
+func buildIpamAllocEndPoint(cr infrav1alpha1.If, x topov1alpha1.Tl, ipamOptions *IpamOptions) *ipamv1alpha1.Register {
 	var (
 		nodeName  string
 		itfcename string
@@ -107,17 +113,20 @@ func buildIpamAllocEndPoint(cr infrav1alpha1.If, x topov1alpha1.Tl, ipamOptions 
 		nodeName = x.GetEndpointBNodeName()
 		itfcename = x.GetEndpointBInterfaceName()
 	}
-	return &ipamv1alpha1.Alloc{
+	odr := odr.GetODRFromNamespacedName(ipamOptions.RegistryName)
+	ipamName := odr.ObjectName
+	niName := ipamOptions.NetworkInstanceName
+	return &ipamv1alpha1.Register{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      strings.Join([]string{ipamOptions.IpamName, ipamOptions.NetworkInstanceName, x.GetLinkName(), nodeName, ipamOptions.AddressFamily}, "."),
-			Namespace: cr.GetNamespace(),
+			Name:      strings.Join([]string{ipamName, niName, cr.GetName(), x.GetLinkName(), nodeName, ipamOptions.AddressFamily}, "."),
+			Namespace: odr.Namespace,
 			Labels:    map[string]string{
 				//labelPrefix: strings.Join([]string{allocIpamPrefix, cr.GetName(), x.GetName(), nodeName}, "-"),
 			},
 			OwnerReferences: []metav1.OwnerReference{meta.AsController(meta.TypedReferenceTo(cr, infrav1alpha1.InfrastructureGroupVersionKind))},
 		},
-		Spec: ipamv1alpha1.AllocSpec{
-			Alloc: &ipamv1alpha1.IpamAlloc{
+		Spec: ipamv1alpha1.RegisterSpec{
+			Register: &ipamv1alpha1.IpamRegister{
 				IpPrefix: utils.StringPtr(ipamOptions.IpPrefix),
 				Selector: []*nddov1.Tag{
 					{Key: utils.StringPtr(ipamv1alpha1.KeyAddressFamily), Value: utils.StringPtr(ipamOptions.AddressFamily)},

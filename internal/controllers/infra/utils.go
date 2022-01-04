@@ -23,9 +23,9 @@ import (
 	"github.com/yndd/nddo-grpc/resource/resourcepb"
 	infrav1alpha1 "github.com/yndd/nddo-infrastructure/apis/infra/v1alpha1"
 	"github.com/yndd/nddo-infrastructure/internal/infra"
-	nddov1 "github.com/yndd/nddo-runtime/apis/common/v1"
 	ipamv1alpha1 "github.com/yndd/nddr-ipam/apis/ipam/v1alpha1"
-	topov1alpha1 "github.com/yndd/nddr-topology/apis/topo/v1alpha1"
+	"github.com/yndd/nddr-org-registry/pkg/registry"
+	topov1alpha1 "github.com/yndd/nddr-topo-registry/apis/topo/v1alpha1"
 	"inet.af/netaddr"
 )
 
@@ -75,8 +75,8 @@ func getLinkParameters(i int, niName string, link topov1alpha1.Tl, register map[
 			//mhName:       link.GetEndPointAMultiHomingName(),
 			tags:         link.GetEndpointATag(),
 			topologyName: link.GetTopologyName(),
-			asPoolName:   register[nddov1.RegisterKindAs.String()],
-			ipamName:     register[nddov1.RegisterKindIpam.String()],
+			asPoolName:   register[registry.RegisterKindAs.String()],
+			ipamName:     register[registry.RegisterKindIpam.String()],
 			ipamClient:   ipamClient,
 			aspoolClient: aspoolClient,
 		}
@@ -99,8 +99,8 @@ func getLinkParameters(i int, niName string, link topov1alpha1.Tl, register map[
 			//mhName:       link.GetEndPointBMultiHomingName(),
 			tags:         link.GetEndpointATag(),
 			topologyName: link.GetTopologyName(),
-			asPoolName:   register[nddov1.RegisterKindAs.String()],
-			ipamName:     register[nddov1.RegisterKindIpam.String()],
+			asPoolName:   register[registry.RegisterKindAs.String()],
+			ipamName:     register[registry.RegisterKindIpam.String()],
 			ipamClient:   ipamClient,
 			aspoolClient: aspoolClient,
 		}

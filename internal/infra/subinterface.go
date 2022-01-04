@@ -29,7 +29,7 @@ import (
 	"github.com/yndd/nddo-grpc/resource/resourcepb"
 	infrav1alpha1 "github.com/yndd/nddo-infrastructure/apis/infra/v1alpha1"
 	"github.com/yndd/nddo-runtime/pkg/resource"
-	ipamv1alpha1 "github.com/yndd/nddr-ipam/apis/ipam/v1alpha1"
+	ipamv1alpha1 "github.com/yndd/nddr-ipam-registry/apis/ipam/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
@@ -104,6 +104,12 @@ func WithSubInterfaceAsPoolClient(c resourcepb.ResourceClient) SubInterfaceOptio
 	}
 }
 
+func WithSubInterfaceNiRegisterClient(c resourcepb.ResourceClient) SubInterfaceOption {
+	return func(r *subInterface) {
+		r.niregisterClient = c
+	}
+}
+
 func NewSubInterface(itfce Interface, idx string, opts ...SubInterfaceOption) SubInterface {
 	i := &subInterface{
 		itfce: itfce,
@@ -146,9 +152,10 @@ type SubInterface interface {
 }
 
 type subInterface struct {
-	client       resource.ClientApplicator
-	ipamClient   resourcepb.ResourceClient
-	aspoolClient resourcepb.ResourceClient
+	client           resource.ClientApplicator
+	ipamClient       resourcepb.ResourceClient
+	aspoolClient     resourcepb.ResourceClient
+	niregisterClient resourcepb.ResourceClient
 	//client client.Client
 	log logging.Logger
 
