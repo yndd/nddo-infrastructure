@@ -16,6 +16,7 @@ limitations under the License.
 
 package infra
 
+/*
 import (
 	"fmt"
 	"sync"
@@ -124,3 +125,4 @@ func (x *infra) PrintNodes(n string) {
 		n.Print(name, 1)
 	}
 }
+*/

@@ -15,6 +15,7 @@ limitations under the License.
 */
 package infra
 
+/*
 import (
 	"context"
 	"strings"
@@ -24,7 +25,7 @@ import (
 	"github.com/yndd/ndd-runtime/pkg/utils"
 	"github.com/yndd/nddo-grpc/resource/resourcepb"
 	infrav1alpha1 "github.com/yndd/nddo-infrastructure/apis/infra/v1alpha1"
-	"github.com/yndd/nddo-runtime/pkg/odr"
+	"github.com/yndd/nddo-runtime/pkg/odns"
 	"github.com/yndd/nddo-runtime/pkg/resource"
 	ipamv1alpha1 "github.com/yndd/nddr-ipam-registry/apis/ipam/v1alpha1"
 	topov1alpha1 "github.com/yndd/nddr-topo-registry/apis/topo/v1alpha1"
@@ -309,13 +310,19 @@ func (x *link) ValidateIPLinkEndpoint(ctx context.Context, cr infrav1alpha1.If, 
 }
 
 func buildGrpcAllocateLinkIP(cr infrav1alpha1.If, x topov1alpha1.Tl, ipamOptions *IpamOptions) *resourcepb.Request {
-	odr := odr.GetODRFromNamespacedName(ipamOptions.RegistryName)
-	ipamName := odr.ObjectName
-	niName := ipamOptions.NetworkInstanceName
+
+	registerName := odns.GetOdnsRegisterName(cr.GetName(),
+		[]string{strings.ToLower(infrav1alpha1.InfrastructureKindKind), ipamOptions.RegistryName, ipamOptions.NetworkInstanceName},
+		[]string{x.GetLinkName(), ipamOptions.AddressFamily})
+
 	return &resourcepb.Request{
-		Namespace:    odr.Namespace,
-		ResourceName: strings.Join([]string{ipamName, niName, cr.GetName(), x.GetLinkName(), ipamOptions.AddressFamily}, "."),
-		Kind:         "ipam",
+		//Oda:                 oda,
+		Namespace:    cr.GetNamespace(),
+		RegisterName: registerName,
+		//RegistryName:        ipamOptions.RegistryName,
+		//NetworkInstanceName: ipamOptions.NetworkInstanceName,
+		//Name:                strings.Join([]string{cr.GetName(), x.GetLinkName(), ipamOptions.AddressFamily}, "."),
+		Kind: "ipam",
 		Request: &resourcepb.Req{
 			Selector: map[string]string{
 				ipamv1alpha1.KeyAddressFamily: ipamOptions.AddressFamily,
@@ -329,32 +336,6 @@ func buildGrpcAllocateLinkIP(cr infrav1alpha1.If, x topov1alpha1.Tl, ipamOptions
 	}
 }
 
-/*
-func buildIpamAllocLink(cr infrav1alpha1.If, x topov1alpha1.Tl, ipamOptions *IpamOptions) *ipamv1alpha1.Alloc {
-	return &ipamv1alpha1.Alloc{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      strings.Join([]string{ipamOptions.IpamName, ipamOptions.NetworkInstanceName, x.GetLinkName(), ipamOptions.AddressFamily}, "."),
-			Namespace: cr.GetNamespace(),
-			//Labels: map[string]string{
-			//	labelPrefix: strings.Join([]string{ipamOptions.IpamName, ipamOptions.NetworkInstanceName, x.GetLinkName(), ipamOptions.AddressFamily}, "."),
-			//},
-			OwnerReferences: []metav1.OwnerReference{meta.AsController(meta.TypedReferenceTo(cr, infrav1alpha1.InfrastructureGroupVersionKind))},
-		},
-		Spec: ipamv1alpha1.AllocSpec{
-			Alloc: &ipamv1alpha1.IpamAlloc{
-				Selector: []*nddov1.Tag{
-					{Key: utils.StringPtr(ipamv1alpha1.KeyAddressFamily), Value: utils.StringPtr(ipamOptions.AddressFamily)},
-					{Key: utils.StringPtr(ipamv1alpha1.KeyPurpose), Value: utils.StringPtr(ipamv1alpha1.PurposeIsl.String())},
-				},
-				SourceTag: []*nddov1.Tag{
-					{Key: utils.StringPtr(x.GetEndpointANodeName()), Value: utils.StringPtr(x.GetEndpointAInterfaceName())},
-					{Key: utils.StringPtr(x.GetEndpointBNodeName()), Value: utils.StringPtr(x.GetEndpointBInterfaceName())},
-				},
-			},
-		},
-	}
-}
-*/
 
 func buildGrpcAllocateEndPointIP(cr infrav1alpha1.If, x topov1alpha1.Tl, ipamOptions *IpamOptions) *resourcepb.Request {
 	var (
@@ -369,12 +350,13 @@ func buildGrpcAllocateEndPointIP(cr infrav1alpha1.If, x topov1alpha1.Tl, ipamOpt
 		itfcename = x.GetEndpointBInterfaceName()
 	}
 
-	odr := odr.GetODRFromNamespacedName(ipamOptions.RegistryName)
-	ipamName := odr.ObjectName
-	niName := ipamOptions.NetworkInstanceName
+	registerName := odns.GetOdnsRegisterName(cr.GetName(),
+		[]string{strings.ToLower(infrav1alpha1.InfrastructureKindKind), ipamOptions.RegistryName, ipamOptions.NetworkInstanceName},
+		[]string{x.GetLinkName(), nodeName, ipamOptions.AddressFamily})
+
 	return &resourcepb.Request{
-		Namespace:    odr.Namespace,
-		ResourceName: strings.Join([]string{ipamName, niName, cr.GetName(), x.GetLinkName(), nodeName, ipamOptions.AddressFamily}, "."),
+		Namespace:    cr.GetNamespace(),
+		RegisterName: registerName,
 		Kind:         "ipam",
 		Request: &resourcepb.Req{
 			IpPrefix: ipamOptions.IpPrefix,
@@ -387,46 +369,6 @@ func buildGrpcAllocateEndPointIP(cr infrav1alpha1.If, x topov1alpha1.Tl, ipamOpt
 			SourceTag: map[string]string{
 				topov1alpha1.KeyNode:      nodeName,
 				topov1alpha1.KeyInterface: itfcename,
-			},
-		},
-	}
-}
-
-/*
-func buildIpamAllocEndPoint(cr infrav1alpha1.If, x topov1alpha1.Tl, ipamOptions *IpamOptions) *ipamv1alpha1.Alloc {
-	var (
-		nodeName  string
-		itfcename string
-	)
-	if ipamOptions.EpIndex == 0 {
-		nodeName = x.GetEndpointANodeName()
-		itfcename = x.GetEndpointAInterfaceName()
-	} else {
-		nodeName = x.GetEndpointBNodeName()
-		itfcename = x.GetEndpointBInterfaceName()
-	}
-	return &ipamv1alpha1.Alloc{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      strings.Join([]string{ipamOptions.IpamName, ipamOptions.NetworkInstanceName, x.GetLinkName(), nodeName, ipamOptions.AddressFamily}, "."),
-			Namespace: cr.GetNamespace(),
-			Labels:    map[string]string{
-				//labelPrefix: strings.Join([]string{allocIpamPrefix, cr.GetName(), x.GetName(), nodeName}, "-"),
-			},
-			OwnerReferences: []metav1.OwnerReference{meta.AsController(meta.TypedReferenceTo(cr, infrav1alpha1.InfrastructureGroupVersionKind))},
-		},
-		Spec: ipamv1alpha1.AllocSpec{
-			Alloc: &ipamv1alpha1.IpamAlloc{
-				IpPrefix: utils.StringPtr(ipamOptions.IpPrefix),
-				Selector: []*nddov1.Tag{
-					{Key: utils.StringPtr(ipamv1alpha1.KeyAddressFamily), Value: utils.StringPtr(ipamOptions.AddressFamily)},
-					{Key: utils.StringPtr(ipamv1alpha1.KeyPurpose), Value: utils.StringPtr(ipamv1alpha1.PurposeIsl.String())},
-					{Key: utils.StringPtr(x.GetEndpointANodeName()), Value: utils.StringPtr(x.GetEndpointAInterfaceName())},
-					{Key: utils.StringPtr(x.GetEndpointBNodeName()), Value: utils.StringPtr(x.GetEndpointBInterfaceName())},
-				},
-				SourceTag: []*nddov1.Tag{
-					{Key: utils.StringPtr(topov1alpha1.KeyNode), Value: utils.StringPtr(nodeName)},
-					{Key: utils.StringPtr(topov1alpha1.KeyInterface), Value: utils.StringPtr(itfcename)},
-				},
 			},
 		},
 	}

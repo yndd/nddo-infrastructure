@@ -16,6 +16,7 @@ limitations under the License.
 
 package infra
 
+/*
 import (
 	"strconv"
 	"strings"
@@ -24,15 +25,15 @@ import (
 	"github.com/yndd/ndd-runtime/pkg/utils"
 	infrav1alpha1 "github.com/yndd/nddo-infrastructure/apis/infra/v1alpha1"
 	nddov1 "github.com/yndd/nddo-runtime/apis/common/v1"
-	"github.com/yndd/nddo-runtime/pkg/odr"
+	"github.com/yndd/nddo-runtime/pkg/odns"
 	asv1alpha1 "github.com/yndd/nddr-as-registry/apis/as/v1alpha1"
 	topov1alpha1 "github.com/yndd/nddr-topo-registry/apis/topo/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 const (
-	allocASpoolPrefix = "alloc-aspool"
-	labelPrefix       = "nddo-infra"
+	//allocASpoolPrefix = "alloc-aspool"
+	//labelPrefix       = "nddo-infra"
 
 	errUnavailableAsPoolAllocation = "AS pool allocation prefix unavailable"
 )
@@ -44,17 +45,18 @@ type AsOptions struct {
 
 func buildAsPoolAllocByIndex(cr infrav1alpha1.If, x topov1alpha1.Tn, asRegistry string) *asv1alpha1.Register {
 
-	odr := odr.GetODRFromNamespacedName(asRegistry)
+	registerName := odns.GetOdnsRegisterName(cr.GetName(),
+		[]string{strings.ToLower(infrav1alpha1.InfrastructureKindKind), asRegistry},
+		[]string{x.GetNodeName()})
+
 	return &asv1alpha1.Register{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      strings.Join([]string{odr.ObjectName, cr.GetName(), x.GetNodeName()}, "."),
-			Namespace: odr.Namespace,
-			Labels: map[string]string{
-				labelPrefix: strings.Join([]string{odr.ObjectName, cr.GetName(), x.GetNodeName()}, "."),
-			},
+			Name:      registerName,
+			Namespace: cr.GetNamespace(),
 			OwnerReferences: []metav1.OwnerReference{meta.AsController(meta.TypedReferenceTo(cr, infrav1alpha1.InfrastructureGroupVersionKind))},
 		},
 		Spec: asv1alpha1.RegisterSpec{
+			//RegistryName: &asRegistry,
 			Register: &asv1alpha1.AsRegister{
 				Selector: []*nddov1.Tag{
 					{Key: utils.StringPtr(topov1alpha1.KeyNodeIndex), Value: utils.StringPtr(strconv.Itoa(int(x.GetNodeIndex())))},
@@ -67,3 +69,4 @@ func buildAsPoolAllocByIndex(cr infrav1alpha1.If, x topov1alpha1.Tn, asRegistry 
 		},
 	}
 }
+*/

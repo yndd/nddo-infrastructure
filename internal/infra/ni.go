@@ -15,6 +15,7 @@ limitations under the License.
 */
 package infra
 
+/*
 import (
 	"context"
 	"fmt"
@@ -30,6 +31,7 @@ import (
 	"github.com/yndd/nddo-grpc/resource/resourcepb"
 	infrav1alpha1 "github.com/yndd/nddo-infrastructure/apis/infra/v1alpha1"
 	nddov1 "github.com/yndd/nddo-runtime/apis/common/v1"
+	"github.com/yndd/nddo-runtime/pkg/odns"
 	"github.com/yndd/nddo-runtime/pkg/resource"
 	niv1alpha1 "github.com/yndd/nddr-ni-registry/apis/ni/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
@@ -214,16 +216,23 @@ func (x *ni) DeleteNiRegister(ctx context.Context, cr infrav1alpha1.If, niOption
 }
 
 func (x *ni) buildNiRegister(cr infrav1alpha1.If, niOptions *NiOptions) *niv1alpha1.Register {
+
+	registerName := odns.GetOdnsRegisterName(cr.GetName(),
+		[]string{strings.ToLower(cr.GetObjectKind().GroupVersionKind().Kind), niOptions.RegistryName},
+		[]string{x.GetNode().GetName()})
+
 	return &niv1alpha1.Register{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      strings.Join([]string{niOptions.RegistryName, niOptions.NetworkInstanceName, cr.GetName(), x.GetNode().GetName()}, "."),
-			Namespace: niOptions.Namespace,
+			Name: registerName,
+			//Name:      strings.Join([]string{cr.GetName(), x.GetNode().GetName()}, "."),
+			Namespace: cr.GetNamespace(),
 			Labels: map[string]string{
 				niv1alpha1.LabelNiKey: niOptions.NetworkInstanceName,
 			},
 			OwnerReferences: []metav1.OwnerReference{meta.AsController(meta.TypedReferenceTo(cr, infrav1alpha1.InfrastructureGroupVersionKind))},
 		},
 		Spec: niv1alpha1.RegisterSpec{
+			//RegistryName: &niOptions.RegistryName,
 			Register: &niv1alpha1.NiRegister{
 				Selector: []*nddov1.Tag{
 					{Key: utils.StringPtr(niv1alpha1.NiSelectorKey), Value: utils.StringPtr(niOptions.NetworkInstanceName)},
@@ -280,8 +289,13 @@ func (x *ni) GetNddaNiInterfaces() []*networkv1alpha1.NetworkNetworkInstanceInte
 }
 
 func (x *ni) buildNddaNi(cr infrav1alpha1.If) *networkv1alpha1.NetworkInstance {
+
+	resourceName := odns.GetOdnsResourceName(cr.GetName(), strings.ToLower(infrav1alpha1.InfrastructureKindKind),
+		[]string{x.GetNode().GetName()})
+
 	objMeta := metav1.ObjectMeta{
-		Name:      strings.Join([]string{x.GetName(), x.GetKind(), x.GetNode().GetName()}, "."),
+		//Name:      strings.Join([]string{cr.GetName(), x.GetName(), x.GetKind(), x.GetNode().GetName()}, "."),
+		Name:      resourceName,
 		Namespace: cr.GetNamespace(),
 		Labels: map[string]string{
 			networkv1alpha1.LabelNetworkInstanceKindKey: x.GetKind(),
@@ -360,10 +374,18 @@ func (x *ni) GrpcDeAllocateNiIndex(ctx context.Context, cr infrav1alpha1.If, niO
 }
 
 func buildGrpcAllocateNiIndex(cr infrav1alpha1.If, niOptions *NiOptions) *resourcepb.Request {
+
+	registerName := odns.GetOdnsRegisterName(cr.GetName(),
+		[]string{strings.ToLower(cr.GetObjectKind().GroupVersionKind().Kind), niOptions.RegistryName},
+		[]string{niOptions.NetworkInstanceName})
+
 	return &resourcepb.Request{
-		Namespace:    niOptions.Namespace,
-		ResourceName: strings.Join([]string{niOptions.RegistryName, niOptions.NetworkInstanceName, cr.GetName()}, "."),
-		Kind:         "ni",
+		//Oda:          oda,
+		Namespace:    cr.GetNamespace(),
+		RegisterName: registerName,
+		//RegistryName: niOptions.RegistryName,
+		//Name:         strings.Join([]string{cr.GetName()}, "."),
+		Kind: "ni",
 		Request: &resourcepb.Req{
 			Selector: map[string]string{
 				niv1alpha1.NiSelectorKey: strings.Join([]string{niOptions.NetworkInstanceName}, "."),
@@ -374,3 +396,4 @@ func buildGrpcAllocateNiIndex(cr infrav1alpha1.If, niOptions *NiOptions) *resour
 		},
 	}
 }
+*/

@@ -16,6 +16,7 @@ limitations under the License.
 
 package infra
 
+/*
 import (
 	"context"
 	"strconv"
@@ -352,7 +353,7 @@ func (r *Reconciler) handleAppLogic(ctx context.Context, cr infrav1alpha1.If, cr
 	}
 	r.inframutex.Unlock()
 
-	deploymentName := strings.Join([]string{cr.GetOrganizationName(), cr.GetDeploymentName()}, ".")
+	deploymentName := strings.Join([]string{cr.GetOrganization(), cr.GetDeployment()}, ".")
 	niName := cr.GetNetworkInstanceName()
 
 	register, err := r.GetRegister(ctx, cr, deploymentName)
@@ -449,18 +450,18 @@ func (r *Reconciler) handleAppLogic(ctx context.Context, cr infrav1alpha1.If, cr
 							if err != nil {
 								return nil, err
 							}
-							/*
-								if err := l.AllocateIPLink(ctx, cr, link, ipamOptions); err != nil {
-									//log.Debug(errCreate, "error", err)
-									return nil, err
-								}
 
-								linkPrefix, err := l.ValidateIPLink(ctx, cr, link, ipamOptions)
-								if err != nil {
-									//log.Debug(errValidate, "error", err)
-									return nil, err
-								}
-							*/
+							//	if err := l.AllocateIPLink(ctx, cr, link, ipamOptions); err != nil {
+							//		//log.Debug(errCreate, "error", err)
+							//		return nil, err
+							//	}
+
+							//	linkPrefix, err := l.ValidateIPLink(ctx, cr, link, ipamOptions)
+							//	if err != nil {
+							//		//log.Debug(errValidate, "error", err)
+							//		return nil, err
+							//	}
+
 
 							l.SetPrefix(af, *linkPrefix)
 
@@ -492,16 +493,16 @@ func (r *Reconciler) handleAppLogic(ctx context.Context, cr infrav1alpha1.If, cr
 								if err != nil {
 									return nil, err
 								}
-								/*
-									if err := l.AllocateIPLinkEndpoint(ctx, cr, link, ipamOptions); err != nil {
-										return nil, err
-									}
-									epPrefix, err := l.ValidateIPLinkEndpoint(ctx, cr, link, ipamOptions)
-									if err != nil {
-										//log.Debug(errValidate, "error", err)
-										return nil, err
-									}
-								*/
+
+								//	if err := l.AllocateIPLinkEndpoint(ctx, cr, link, ipamOptions); err != nil {
+								//		return nil, err
+								//	}
+								//	epPrefix, err := l.ValidateIPLinkEndpoint(ctx, cr, link, ipamOptions)
+								//	if err != nil {
+								//		//log.Debug(errValidate, "error", err)
+								//		return nil, err
+								//	}
+
 								//ePrefix := string(*epPrefix)
 								lPrefix := l.GetPrefix(af)
 
@@ -651,7 +652,7 @@ func (r *Reconciler) createInterface(crname string, ip *interfaceParameters) inf
 
 func (r *Reconciler) createNode(ctx context.Context, cr infrav1alpha1.If, crname string, ip *interfaceParameters) error {
 	// get node from k8s api to retrieve node parameters like index for aspool
-	nodeName := strings.Join([]string{cr.GetOrganizationName(), cr.GetDeploymentName(), ip.topologyName, ip.nodeName}, ".")
+	nodeName := strings.Join([]string{cr.GetOrganization(), cr.GetDeployment(), ip.topologyName, ip.nodeName}, ".")
 	node := r.newTopoNode()
 	if err := r.client.Get(ctx, types.NamespacedName{
 		Namespace: cr.GetNamespace(),
@@ -687,18 +688,18 @@ func (r *Reconciler) createNode(ctx context.Context, cr infrav1alpha1.If, crname
 			if err != nil {
 				return err
 			}
-			/*
-				as, err := n.ValidateAS(ctx, cr, node, ip.asPoolName)
-				if err != nil {
-					if resource.IgnoreNotFound(err) != nil {
-						return err
-					}
-					if err := n.AllocateAS(ctx, cr, node, ip.asPoolName); err != nil {
-						//log.Debug(errCreate, "error", err)
-						return err
-					}
-				}
-			*/
+
+			//	as, err := n.ValidateAS(ctx, cr, node, ip.asPoolName)
+			//	if err != nil {
+			//		if resource.IgnoreNotFound(err) != nil {
+			//			return err
+			//		}
+			//		if err := n.AllocateAS(ctx, cr, node, ip.asPoolName); err != nil {
+			///			//log.Debug(errCreate, "error", err)
+			//			return err
+			//		}
+			//	}
+
 			n.SetAS(*as)
 		}
 	}
@@ -714,18 +715,18 @@ func (r *Reconciler) createNode(ctx context.Context, cr infrav1alpha1.If, crname
 			return err
 		}
 
-		/*
-			prefix, err := n.ValidateLoopbackIP(ctx, cr, node, ipamOptions)
-			if err != nil {
-				if resource.IgnoreNotFound(err) != nil {
-					return err
-				}
-				if err := n.AllocateLoopbackIP(ctx, cr, node, ipamOptions); err != nil {
-					//log.Debug(errCreate, "error", err)
-					return err
-				}
-			}
-		*/
+
+		//	prefix, err := n.ValidateLoopbackIP(ctx, cr, node, ipamOptions)
+		//	if err != nil {
+		//		if resource.IgnoreNotFound(err) != nil {
+		//			return err
+		//		}
+		//		if err := n.AllocateLoopbackIP(ctx, cr, node, ipamOptions); err != nil {
+		//			//log.Debug(errCreate, "error", err)
+		//			return err
+		//		}
+		//	}
+
 		//lpPrefix := string(*prefix)
 
 		ip.itfceName = "system"
@@ -766,6 +767,7 @@ func (r *Reconciler) createNode(ctx context.Context, cr infrav1alpha1.If, crname
 
 	return nil
 }
+*/
 
 /*
 func (r *Reconciler) validateNode(ctx context.Context, cr infrav1alpha1.If, crname string, ip *interfaceParameters) error {
@@ -856,6 +858,7 @@ func (r *Reconciler) validateNode(ctx context.Context, cr infrav1alpha1.If, crna
 }
 */
 
+/*
 func (r *Reconciler) validateBackend(ctx context.Context, cr infrav1alpha1.If, crname string, activeLinks []topov1alpha1.Tl) error {
 	// update the backend based on the active links processed
 	// validate the existing backend and update the information
@@ -939,7 +942,9 @@ func (r *Reconciler) validateBackend(ctx context.Context, cr infrav1alpha1.If, c
 	}
 	return nil
 }
+*/
 
+/*
 func (r *Reconciler) GetRegister(ctx context.Context, cr infrav1alpha1.If, deploymentName string) (map[string]string, error) {
 
 	dep := r.newDeployment()
@@ -1004,3 +1009,4 @@ func getGrpcServerName(podName string) string {
 	}
 	return pkgmetav1.PrefixGnmiService + "-" + newName + "." + pkgmetav1.NamespaceLocalK8sDNS + strconv.Itoa((pkgmetav1.GnmiServerPort))
 }
+*/

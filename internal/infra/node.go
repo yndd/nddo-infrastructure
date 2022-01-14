@@ -15,6 +15,7 @@ limitations under the License.
 */
 package infra
 
+/*
 import (
 	"context"
 	"fmt"
@@ -28,7 +29,7 @@ import (
 	"github.com/yndd/ndd-runtime/pkg/utils"
 	"github.com/yndd/nddo-grpc/resource/resourcepb"
 	infrav1alpha1 "github.com/yndd/nddo-infrastructure/apis/infra/v1alpha1"
-	"github.com/yndd/nddo-runtime/pkg/odr"
+	"github.com/yndd/nddo-runtime/pkg/odns"
 	"github.com/yndd/nddo-runtime/pkg/resource"
 	asv1alpha1 "github.com/yndd/nddr-as-registry/apis/as/v1alpha1"
 	ipamv1alpha1 "github.com/yndd/nddr-ipam-registry/apis/ipam/v1alpha1"
@@ -387,13 +388,18 @@ func (x *node) Print(nodeName string, n int) {
 }
 
 func buildGrpcAllocateAsByIndex(cr infrav1alpha1.If, x topov1alpha1.Tn, asRegistry string) *resourcepb.Request {
-	odr := odr.GetODRFromNamespacedName(asRegistry)
-	registryname := odr.ObjectName
-	fmt.Printf("asRegistry: %s, registryname: %s, odr: %v\n", asRegistry, registryname, odr)
+
+	registerName := odns.GetOdnsRegisterName(cr.GetName(),
+		[]string{strings.ToLower(infrav1alpha1.InfrastructureKindKind), asRegistry},
+		[]string{x.GetNodeName()})
+
 	return &resourcepb.Request{
-		Namespace:    odr.Namespace,
-		ResourceName: strings.Join([]string{registryname, cr.GetName(), x.GetNodeName()}, "."),
-		Kind:         "as",
+		//Oda:          oda,
+		Namespace:    cr.GetNamespace(),
+		RegisterName: registerName,
+		//RegistryName: asRegistry,
+		//Name:         strings.Join([]string{cr.GetName(), x.GetNodeName()}, "."),
+		Kind: "as",
 		Request: &resourcepb.Req{
 			Selector: map[string]string{
 				topov1alpha1.KeyNodeIndex: strconv.Itoa(int(x.GetNodeIndex())),
@@ -406,12 +412,19 @@ func buildGrpcAllocateAsByIndex(cr infrav1alpha1.If, x topov1alpha1.Tn, asRegist
 }
 
 func buildGrpcAllocateLoopbackIP(cr infrav1alpha1.If, x topov1alpha1.Tn, ipamOptions *IpamOptions) *resourcepb.Request {
-	odr := odr.GetODRFromNamespacedName(ipamOptions.RegistryName)
-	registryname := odr.ObjectName
+
+	registerName := odns.GetOdnsRegisterName(cr.GetName(),
+		[]string{strings.ToLower(infrav1alpha1.InfrastructureKindKind), ipamOptions.RegistryName, ipamOptions.NetworkInstanceName},
+		[]string{x.GetNodeName()})
+
 	return &resourcepb.Request{
-		Namespace:    odr.Namespace,
-		ResourceName: strings.Join([]string{registryname, ipamOptions.NetworkInstanceName, cr.GetName(), x.GetNodeName(), ipamOptions.AddressFamily}, "."),
-		Kind:         "ipam",
+		//Oda:                 oda,
+		Namespace:    cr.GetNamespace(),
+		RegisterName: registerName,
+		//RegistryName:        ipamOptions.RegistryName,
+		//NetworkInstanceName: ipamOptions.NetworkInstanceName,
+		//Name:                strings.Join([]string{cr.GetName(), x.GetNodeName()}, "."),
+		//Kind:                "ipam",
 		Request: &resourcepb.Req{
 			Selector: map[string]string{
 				ipamv1alpha1.KeyAddressFamily: ipamOptions.AddressFamily,
@@ -423,3 +436,4 @@ func buildGrpcAllocateLoopbackIP(cr infrav1alpha1.If, x topov1alpha1.Tn, ipamOpt
 		},
 	}
 }
+*/

@@ -16,6 +16,7 @@ limitations under the License.
 
 package infra
 
+/*
 import (
 	"strconv"
 	"strings"
@@ -23,7 +24,7 @@ import (
 	"github.com/yndd/nddo-grpc/resource/resourcepb"
 	infrav1alpha1 "github.com/yndd/nddo-infrastructure/apis/infra/v1alpha1"
 	"github.com/yndd/nddo-infrastructure/internal/infra"
-	ipamv1alpha1 "github.com/yndd/nddr-ipam/apis/ipam/v1alpha1"
+	ipamv1alpha1 "github.com/yndd/nddr-ipam-registry/apis/ipam/v1alpha1"
 	"github.com/yndd/nddr-org-registry/pkg/registry"
 	topov1alpha1 "github.com/yndd/nddr-topo-registry/apis/topo/v1alpha1"
 	"inet.af/netaddr"
@@ -158,3 +159,4 @@ func parseEndpointPrefix(linkPrefix, epPrefix string) (string, error) {
 
 	return strings.Join([]string{ep.IP().String(), strconv.Itoa(int(lp.Bits()))}, "/"), nil
 }
+*/

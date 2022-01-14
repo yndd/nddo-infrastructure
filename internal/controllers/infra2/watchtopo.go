@@ -22,7 +22,7 @@ import (
 	//ndddvrv1 "github.com/yndd/ndd-core/apis/dvr/v1"
 	"github.com/yndd/ndd-runtime/pkg/logging"
 	infrav1alpha1 "github.com/yndd/nddo-infrastructure/apis/infra/v1alpha1"
-	"github.com/yndd/nddo-infrastructure/internal/handler"
+	"github.com/yndd/nddo-infrastructure/internal/speedyhandler"
 	topov1alpha1 "github.com/yndd/nddr-topo-registry/apis/topo/v1alpha1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -41,7 +41,7 @@ type EnqueueRequestForAllTopologies struct {
 	log    logging.Logger
 	ctx    context.Context
 
-	handler handler.Handler
+	speedyHandler speedyhandler.Handler
 
 	newInfraList func() infrav1alpha1.IfList
 }
@@ -85,10 +85,11 @@ func (e *EnqueueRequestForAllTopologies) add(obj runtime.Object, queue adder) {
 
 	for _, infra := range d.GetInfrastructures() {
 		// only enqueue if the namespace name match
-		if infra.GetNamespace() == dd.GetNamespace() {
+		if infra.GetOrganization() == dd.GetOrganization() &&
+			infra.GetDeployment() == dd.GetDeployment() {
 
 			crName := getCrName(infra)
-			e.handler.ResetSpeedy(crName)
+			e.speedyHandler.ResetSpeedy(crName)
 
 			queue.Add(reconcile.Request{NamespacedName: types.NamespacedName{
 				Namespace: infra.GetNamespace(),

@@ -1,5 +1,6 @@
 package handler
 
+/*
 import (
 	"sync"
 
@@ -111,3 +112,4 @@ func (r *handler) GetInfraNodes(crName string) map[string]infra.Node {
 	defer r.infraMutex.Unlock()
 	return r.infra[crName].GetNodes()
 }
+*/

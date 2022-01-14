@@ -16,6 +16,7 @@ limitations under the License.
 
 package infra2
 
+/*
 import (
 	"strconv"
 	"strings"
@@ -23,6 +24,7 @@ import (
 	"github.com/yndd/nddo-grpc/resource/resourcepb"
 	infrav1alpha1 "github.com/yndd/nddo-infrastructure/apis/infra/v1alpha1"
 	"github.com/yndd/nddo-infrastructure/internal/infra"
+	"github.com/yndd/nddo-runtime/pkg/odns"
 	ipamv1alpha1 "github.com/yndd/nddr-ipam-registry/apis/ipam/v1alpha1"
 	"github.com/yndd/nddr-org-registry/pkg/registry"
 	topov1alpha1 "github.com/yndd/nddr-topo-registry/apis/topo/v1alpha1"
@@ -47,9 +49,10 @@ type interfaceParameters struct {
 	//mhName       string
 	tags map[string]string
 	// references
-	topologyName string
-	asRegistry   string
-	ipamRegistry string
+	topologyName     string
+	fullTopologyName string
+	asRegistry       string
+	ipamRegistry     string
 	//client
 	ipamClient       resourcepb.ResourceClient
 	aspoolClient     resourcepb.ResourceClient
@@ -57,6 +60,7 @@ type interfaceParameters struct {
 }
 
 func getLinkParameters(i int, niName string, link topov1alpha1.Tl, register map[string]string, ipamClient, aspoolClient, niregistryClient resourcepb.ResourceClient) *interfaceParameters {
+
 	switch i {
 	case 0:
 		ip := &interfaceParameters{
@@ -76,6 +80,7 @@ func getLinkParameters(i int, niName string, link topov1alpha1.Tl, register map[
 			//mhName:       link.GetEndPointAMultiHomingName(),
 			tags:             link.GetEndpointATag(),
 			topologyName:     link.GetTopologyName(),
+			fullTopologyName: odns.GetParentResourceName(link.GetName()),
 			asRegistry:       register[registry.RegisterKindAs.String()],
 			ipamRegistry:     register[registry.RegisterKindIpam.String()],
 			ipamClient:       ipamClient,
@@ -101,6 +106,7 @@ func getLinkParameters(i int, niName string, link topov1alpha1.Tl, register map[
 			//mhName:       link.GetEndPointBMultiHomingName(),
 			tags:             link.GetEndpointATag(),
 			topologyName:     link.GetTopologyName(),
+			fullTopologyName: odns.GetParentResourceName(link.GetName()),
 			asRegistry:       register[registry.RegisterKindAs.String()],
 			ipamRegistry:     register[registry.RegisterKindIpam.String()],
 			ipamClient:       ipamClient,
@@ -161,3 +167,4 @@ func parseEndpointPrefix(linkPrefix, epPrefix string) (string, error) {
 
 	return strings.Join([]string{ep.IP().String(), strconv.Itoa(int(lp.Bits()))}, "/"), nil
 }
+*/

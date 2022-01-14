@@ -1,10 +1,11 @@
 package handler
 
+/*
 import (
 	"github.com/yndd/ndd-runtime/pkg/logging"
-	"github.com/yndd/nddo-infrastructure/internal/infra"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
 
 // Option can be used to manipulate Options.
 type Option func(Handler)
@@ -21,17 +22,17 @@ func WithClient(c client.Client) Option {
 		s.WithClient(c)
 	}
 }
-
+*/
 type Handler interface {
-	WithLogger(log logging.Logger)
-	WithClient(client.Client)
-	Init(string)
-	Delete(string)
-	ResetSpeedy(string)
-	GetSpeedy(crName string) int
-	IncrementSpeedy(crName string)
+	//WithLogger(log logging.Logger)
+	//WithClient(client.Client)
+	//Init(string)
+	//Delete(string)
+	//ResetSpeedy(string)
+	//GetSpeedy(crName string) int
+	//IncrementSpeedy(crName string)
 
-	PrintInfraNodes(string)
-	GetInfraLinks(string) map[string]infra.Link
-	GetInfraNodes(string) map[string]infra.Node
+	//PrintInfraNodes(string)
+	//GetInfraLinks(string) map[string]infra.Link
+	//GetInfraNodes(string) map[string]infra.Node
 }

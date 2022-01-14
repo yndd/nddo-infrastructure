@@ -15,6 +15,7 @@ limitations under the License.
 */
 package infra
 
+/*
 import (
 	"context"
 	"fmt"
@@ -28,6 +29,7 @@ import (
 	networkv1alpha1 "github.com/yndd/ndda-network/apis/network/v1alpha1"
 	"github.com/yndd/nddo-grpc/resource/resourcepb"
 	infrav1alpha1 "github.com/yndd/nddo-infrastructure/apis/infra/v1alpha1"
+	"github.com/yndd/nddo-runtime/pkg/odns"
 	"github.com/yndd/nddo-runtime/pkg/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -320,11 +322,16 @@ func (x *itfce) DeleteNddaInterface(ctx context.Context, cr infrav1alpha1.If) er
 func (x *itfce) buildNddaInterface(cr infrav1alpha1.If) *networkv1alpha1.Interface {
 	itfceName := strings.ReplaceAll(x.GetName(), "/", "-")
 
-	orgName := cr.GetOrganizationName()
-	depName := cr.GetDeploymentName()
+	//resourceName := odns.GetOdnsResourceName(cr.GetName(),
+	//	[]string{cr.GetNetworkInstanceName()},
+	//	[]string{x.GetNode().GetName(), itfceName, x.GetKind()})
+
+	resourceName := odns.GetOdnsResourceName(cr.GetName(), strings.ToLower(infrav1alpha1.InfrastructureKindKind),
+		[]string{x.GetNode().GetName(), itfceName, x.GetKind()})
 
 	objMeta := metav1.ObjectMeta{
-		Name:      strings.Join([]string{orgName, depName, x.GetNode().GetName(), itfceName, x.GetKind()}, "."),
+		//Name:      strings.Join([]string{cr.GetName(), cr.GetNetworkInstanceName(), x.GetNode().GetName(), itfceName, x.GetKind()}, "."),
+		Name:      resourceName,
 		Namespace: cr.GetNamespace(),
 		Labels: map[string]string{
 			networkv1alpha1.LabelInterfaceKindKey: x.GetKind(),
@@ -364,3 +371,4 @@ func (x *itfce) buildNddaInterface(cr infrav1alpha1.If) *networkv1alpha1.Interfa
 		}
 	}
 }
+*/

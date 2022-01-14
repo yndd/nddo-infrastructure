@@ -22,7 +22,8 @@ import (
 	nddv1 "github.com/yndd/ndd-runtime/apis/common/v1"
 	"github.com/yndd/ndd-runtime/pkg/resource"
 	"github.com/yndd/ndd-runtime/pkg/utils"
-	"github.com/yndd/nddo-runtime/pkg/odr"
+	nddov1 "github.com/yndd/nddo-runtime/apis/common/v1"
+	"github.com/yndd/nddo-runtime/pkg/odns"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -51,8 +52,14 @@ type If interface {
 	resource.Object
 	resource.Conditioned
 
-	GetOrganizationName() string
-	GetDeploymentName() string
+	GetCondition(ct nddv1.ConditionKind) nddv1.Condition
+	SetConditions(c ...nddv1.Condition)
+	GetDeploymentPolicy() nddov1.DeploymentPolicy
+	SetDeploymentPolicy(nddov1.DeploymentPolicy)
+	GetOrganization() string
+	GetDeployment() string
+	GetAvailabilityZone() string
+	GetInfraName() string
 	GetNetworkInstanceName() string
 	GetAdminState() string
 	GetDescription() string
@@ -64,8 +71,9 @@ type If interface {
 	SetStatus(string)
 	SetReason(string)
 	GetStatus() string
-	SetOrganizationName(s string)
-	SetDeploymentName(s string)
+	SetOrganization(string)
+	SetDeployment(string)
+	SetAvailabilityZone(s string)
 	SetNetworkInstanceName(s string)
 }
 
@@ -79,16 +87,35 @@ func (x *Infrastructure) SetConditions(c ...nddv1.Condition) {
 	x.Status.SetConditions(c...)
 }
 
-func (x *Infrastructure) GetOrganizationName() string {
-	return odr.GetOrganizationName(x.GetNamespace())
+func (x *Infrastructure) GetDeploymentPolicy() nddov1.DeploymentPolicy {
+	return x.Spec.DeploymentPolicy
 }
 
-func (x *Infrastructure) GetDeploymentName() string {
-	return odr.GetDeploymentName(x.GetNamespace())
+func (x *Infrastructure) SetDeploymentPolicy(c nddov1.DeploymentPolicy) {
+	x.Spec.DeploymentPolicy = c
+}
+
+func (x *Infrastructure) GetOrganization() string {
+	return odns.Name2OdnsResource(x.GetName()).GetOrganization()
+}
+
+func (x *Infrastructure) GetDeployment() string {
+	return odns.Name2OdnsResource(x.GetName()).GetDeployment()
+}
+
+func (x *Infrastructure) GetAvailabilityZone() string {
+	return odns.Name2OdnsResource(x.GetName()).GetAvailabilityZone()
+}
+
+func (x *Infrastructure) GetInfraName() string {
+	return odns.Name2OdnsResource(x.GetName()).GetResourceName()
 }
 
 func (x *Infrastructure) GetNetworkInstanceName() string {
-	return x.GetName()
+	if reflect.ValueOf(x.Spec.Infrastructure.NetworkInstanceName).IsZero() {
+		return ""
+	}
+	return *x.Spec.Infrastructure.NetworkInstanceName
 }
 
 func (x *Infrastructure) GetAdminState() string {
@@ -177,12 +204,16 @@ func (x *Infrastructure) GetStatus() string {
 	return "unknown"
 }
 
-func (x *Infrastructure) SetOrganizationName(s string) {
-	x.Status.OrganizationName = &s
+func (x *Infrastructure) SetOrganization(s string) {
+	x.Status.SetOrganization(s)
 }
 
-func (x *Infrastructure) SetDeploymentName(s string) {
-	x.Status.DeploymentName = &s
+func (x *Infrastructure) SetDeployment(s string) {
+	x.Status.SetDeployment(s)
+}
+
+func (x *Infrastructure) SetAvailabilityZone(s string) {
+	x.Status.SetAvailabilityZone(s)
 }
 
 func (x *Infrastructure) SetNetworkInstanceName(s string) {

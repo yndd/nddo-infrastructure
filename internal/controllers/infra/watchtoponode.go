@@ -77,7 +77,7 @@ func (e *EnqueueRequestForAllTopologyNodes) add(obj runtime.Object, queue adder)
 	}
 
 	for _, infra := range d.Items {
-		deploymentName := strings.Join([]string{infra.GetOrganizationName(), infra.GetDeploymentName()}, ".")
+		deploymentName := strings.Join([]string{infra.GetOrganization(), infra.GetDeployment()}, ".")
 		// only enqueue if the topology name match
 		if strings.Contains(dd.GetName(), deploymentName) {
 

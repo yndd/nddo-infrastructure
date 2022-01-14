@@ -16,6 +16,7 @@ limitations under the License.
 
 package infra
 
+/*
 import (
 	"context"
 
@@ -39,3 +40,4 @@ func getResourceClient(ctx context.Context, grpcserver string) (resourcepb.Resou
 
 	return client.NewClient(ctx, cfg)
 }
+*/

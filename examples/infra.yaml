@@ -1,10 +1,11 @@
 apiVersion: infra.nddo.yndd.io/v1alpha1
 kind: Infrastructure
 metadata:
-  name: default
-  namespace: nokia.region1
+  name: nokia.region1.infra
+  namespace: default
 spec:
   infrastructure:
+    network-instance-name: default-routed
     admin-state: enable
     addressing-scheme: dual-stack
     underlay-protocol:

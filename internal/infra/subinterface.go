@@ -15,6 +15,7 @@ limitations under the License.
 */
 package infra
 
+/*
 import (
 	"context"
 	"fmt"
@@ -28,6 +29,7 @@ import (
 	networkv1alpha1 "github.com/yndd/ndda-network/apis/network/v1alpha1"
 	"github.com/yndd/nddo-grpc/resource/resourcepb"
 	infrav1alpha1 "github.com/yndd/nddo-infrastructure/apis/infra/v1alpha1"
+	"github.com/yndd/nddo-runtime/pkg/odns"
 	"github.com/yndd/nddo-runtime/pkg/resource"
 	ipamv1alpha1 "github.com/yndd/nddr-ipam-registry/apis/ipam/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -297,23 +299,6 @@ func (x *subInterface) CreateNddaSubInterface(ctx context.Context, cr infrav1alp
 	}
 	return nil
 
-	/*
-		c := x.buildNddaSubInterface(cr)
-		if err := x.client.Get(ctx, types.NamespacedName{
-			Namespace: cr.GetNamespace(), Name: c.GetName()}, c); err != nil {
-			if resource.IgnoreNotFound(err) != nil {
-				return errors.Wrap(err, errGetNetworkInstance)
-			}
-			if err := x.client.Create(ctx, c); err != nil {
-				return errors.Wrap(err, errCreateNetworkInstance)
-			}
-		}
-		if err := x.client.Update(ctx, c); err != nil {
-			return errors.Wrap(err, errCreateNetworkInstance)
-		}
-
-		return nil
-	*/
 }
 
 func (x *subInterface) DeleteNddaSubInterface(ctx context.Context, cr infrav1alpha1.If) error {
@@ -328,11 +313,16 @@ func (x *subInterface) buildNddaSubInterface(cr infrav1alpha1.If) *networkv1alph
 	index := strings.ReplaceAll(x.GetIndex(), "/", "-")
 	itfceName := strings.ReplaceAll(x.GetInterface().GetName(), "/", "-")
 
-	orgName := cr.GetOrganizationName()
-	depName := cr.GetDeploymentName()
+	//resourceName := odns.GetOdnsResourceName(cr.GetName(),
+	//	[]string{cr.GetNetworkInstanceName()},
+	//	[]string{x.GetInterface().GetNode().GetName(), itfceName, index, x.GetKind()})
+
+	resourceName := odns.GetOdnsResourceName(cr.GetName(), strings.ToLower(infrav1alpha1.InfrastructureKindKind),
+		[]string{x.GetInterface().GetNode().GetName(), itfceName, index, x.GetKind()})
 
 	objMeta := metav1.ObjectMeta{
-		Name:      strings.Join([]string{orgName, depName, x.GetInterface().GetNode().GetName(), itfceName, index, x.GetKind()}, "."),
+		//Name:      strings.Join([]string{cr.GetName(), cr.GetNetworkInstanceName(), x.GetInterface().GetNode().GetName(), itfceName, index, x.GetKind()}, "."),
+		Name:      resourceName,
 		Namespace: cr.GetNamespace(),
 		Labels: map[string]string{
 			networkv1alpha1.LabelSubInterfaceKindKey: x.GetKind(),
@@ -383,3 +373,4 @@ func (x *subInterface) buildNddaSubInterface(cr infrav1alpha1.If) *networkv1alph
 		}
 	}
 }
+*/

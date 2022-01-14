@@ -30,7 +30,7 @@ import (
 	networkv1alpha1 "github.com/yndd/ndda-network/apis/network/v1alpha1"
 	infrav1alpha1 "github.com/yndd/nddo-infrastructure/apis/infra/v1alpha1"
 	asv1alpha1 "github.com/yndd/nddr-as-registry/apis/as/v1alpha1"
-	ipamv1alpha1 "github.com/yndd/nddr-ipam/apis/ipam/v1alpha1"
+	ipamv1alpha1 "github.com/yndd/nddr-ipam-registry/apis/ipam/v1alpha1"
 	niv1alpha1 "github.com/yndd/nddr-ni-registry/apis/ni/v1alpha1"
 	orgv1alpha1 "github.com/yndd/nddr-org-registry/apis/org/v1alpha1"
 	topov1alpha1 "github.com/yndd/nddr-topo-registry/apis/topo/v1alpha1"

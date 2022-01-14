@@ -15,6 +15,7 @@ limitations under the License.
 */
 package infra
 
+/*
 import (
 	"fmt"
 	"reflect"
@@ -128,3 +129,4 @@ func (x *addressInfo) SetPrefixLength(s uint32) {
 func (x *addressInfo) Print(af, prefix string, n int) {
 	fmt.Printf("%s Address IP Prefix %s: %s\n", strings.Repeat(" ", n), af, prefix)
 }
+*/

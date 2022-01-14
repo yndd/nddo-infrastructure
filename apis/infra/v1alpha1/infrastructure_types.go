@@ -27,6 +27,8 @@ import (
 
 // Infrastructure struct
 type InfraInfrastructure struct {
+	// +kubebuilder:default:="default-routed"
+	NetworkInstanceName *string `json:"network-instance-name,omitempty"`
 	// +kubebuilder:validation:Enum=`dual-stack`;`ipv4-only`;`ipv6-only`
 	AddressingScheme *string `json:"addressing-scheme,omitempty"`
 	// +kubebuilder:validation:Enum=`disable`;`enable`
@@ -48,15 +50,15 @@ type InfraInfrastructure struct {
 
 // A InfrastructureSpec defines the desired state of a Infrastructure.
 type InfrastructureSpec struct {
-	//nddv1.ResourceSpec `json:",inline"`
-	Infrastructure *InfraInfrastructure `json:"infrastructure,omitempty"`
+	//nddov1.OdaInfo `json:",inline"`
+	nddov1.ResourceSpec `json:",inline"`
+	Infrastructure      *InfraInfrastructure `json:"infrastructure,omitempty"`
 }
 
 // A InfrastructureStatus represents the observed state of a InfrastructureSpec.
 type InfrastructureStatus struct {
 	nddv1.ConditionedStatus `json:",inline"`
-	OrganizationName        *string                           `json:"organization-name,omitempty"`
-	DeploymentName          *string                           `json:"deployment-name,omitempty"`
+	nddov1.OdaInfo          `json:",inline"`
 	NetworkInstanceName     *string                           `json:"network-instance-name,omitempty"`
 	Infrastructure          *NddoinfrastructureInfrastructure `json:"infrastructure,omitempty"`
 }
@@ -67,8 +69,9 @@ type InfrastructureStatus struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="SYNC",type="string",JSONPath=".status.conditions[?(@.kind=='Synced')].status"
 // +kubebuilder:printcolumn:name="STATUS",type="string",JSONPath=".status.conditions[?(@.kind=='Ready')].status"
-// +kubebuilder:printcolumn:name="ORG",type="string",JSONPath=".status.organization-name"
-// +kubebuilder:printcolumn:name="DEPL",type="string",JSONPath=".status.deployment-name"
+// +kubebuilder:printcolumn:name="ORG",type="string",JSONPath=".status.oda[?(@.key=='organization')].value"
+// +kubebuilder:printcolumn:name="DEP",type="string",JSONPath=".status.oda[?(@.key=='deployment')].value"
+// +kubebuilder:printcolumn:name="AZ",type="string",JSONPath=".status.oda[?(@.key=='availability-zone')].value"
 // +kubebuilder:printcolumn:name="NI",type="string",JSONPath=".status.network-instance-name"
 // +kubebuilder:printcolumn:name="ADDR",type="string",JSONPath=".spec.infrastructure.addressing-scheme"
 // +kubebuilder:printcolumn:name="UNDERLAY",type="string",JSONPath=".spec.infrastructure.underlay-protocol[0]"
