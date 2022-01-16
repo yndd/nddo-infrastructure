@@ -205,7 +205,8 @@ func (r *application) Update(ctx context.Context, mg resource.Managed) (map[stri
 		return nil, err
 	}
 
-	if err := r.networkHandler.DeploySchema(ctx, mg); err != nil {
+	labels := make(map[string]string)
+	if err := r.networkHandler.DeploySchema(ctx, mg, labels); err != nil {
 		return nil, err
 	}
 
@@ -286,18 +287,18 @@ func (r *application) populateSchema(ctx context.Context, mg resource.Managed) (
 			// if resource is not reconciled we dont process
 			if link.GetCondition(topov1alpha1.ConditionKindReady).Status == corev1.ConditionTrue {
 
-				if err := r.networkHandler.PopulateNode(ctx, mg, link); err != nil {
+				if err := r.PopulateNode(ctx, mg, link); err != nil {
 					return nil, err
 				}
 
 				if link.GetLagMember() {
 					// create node and link without ip addresses and subinterfaces
-					if err := r.networkHandler.PopulateLagMember(ctx, mg, link); err != nil {
+					if err := r.PopulateLagMember(ctx, mg, link); err != nil {
 						return nil, err
 					}
 				} else {
 					// create node and link with ip addresses and subinterfaces
-					if err := r.networkHandler.PopulateIpLink(ctx, mg, link); err != nil {
+					if err := r.PopulateIpLink(ctx, mg, link); err != nil {
 						return nil, err
 					}
 				}

@@ -97,6 +97,8 @@ spec:
                     items:
                       properties:
                         inner-vlan-id:
+                          default: 0
+                          description: kubebuilder:validation:Minimum=0 kubebuilder:validation:Maximum=4094
                           type: integer
                         ipv4-prefixes:
                           items:
@@ -107,6 +109,8 @@ spec:
                             type: string
                           type: array
                         outer-vlan-id:
+                          default: 0
+                          description: kubebuilder:validation:Minimum=0 kubebuilder:validation:Maximum=4094
                           type: integer
                         tag:
                           items:

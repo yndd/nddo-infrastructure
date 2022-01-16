@@ -2,31 +2,22 @@ package networkhandler
 
 import (
 	"context"
-	"errors"
-	"fmt"
-	"math/big"
-	"net"
-	"strconv"
 	"strings"
 	"sync"
 
 	"github.com/yndd/ndd-runtime/pkg/logging"
-	"github.com/yndd/ndd-runtime/pkg/utils"
-	networkv1alpha1 "github.com/yndd/ndda-network/apis/network/v1alpha1"
 	networkschema "github.com/yndd/ndda-network/pkg/networkschema/v1alpha1"
-	infrav1alpha1 "github.com/yndd/nddo-infrastructure/apis/infra/v1alpha1"
-	"github.com/yndd/nddo-runtime/pkg/odns"
 	"github.com/yndd/nddo-runtime/pkg/resource"
-	ipamv1alpha1 "github.com/yndd/nddr-ipam-registry/apis/ipam/v1alpha1"
 	topov1alpha1 "github.com/yndd/nddr-topo-registry/apis/topo/v1alpha1"
-	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+/*
 const (
 	// errors
 	errUnexpectedResource = "unexpected infrastructure object"
 )
+*/
 
 func New(opts ...Option) Handler {
 	tnfn := func() topov1alpha1.Tn { return &topov1alpha1.TopologyNode{} }
@@ -79,11 +70,11 @@ func (r *handler) DestroySchema(crName string) {
 	delete(r.schema, crName)
 }
 
-func (r *handler) DeploySchema(ctx context.Context, mg resource.Managed) error {
+func (r *handler) DeploySchema(ctx context.Context, mg resource.Managed, labels map[string]string) error {
 	crName := getCrName(mg)
 	s := r.InitSchema(crName)
 
-	if err := s.DeploySchema(ctx, mg); err != nil {
+	if err := s.DeploySchema(ctx, mg, labels); err != nil {
 		return err
 	}
 	return nil
@@ -133,6 +124,7 @@ func getCrName(mg resource.Managed) string {
 	return strings.Join([]string{mg.GetNamespace(), mg.GetName()}, ".")
 }
 
+/*
 func (r *handler) PopulateNode(ctx context.Context, mg resource.Managed, link topov1alpha1.Tl) error {
 	cr, ok := mg.(*infrav1alpha1.Infrastructure)
 	if !ok {
@@ -161,14 +153,14 @@ func (r *handler) PopulateNode(ctx context.Context, mg resource.Managed, link to
 		index := node.GetNodeIndex()
 
 		// Allocate AS per node if the underlay protocol is ebgp
-		/*
-			for _, protocol := range cr.GetUnderlayProtocol() {
-				if protocol == string(infrav1alpha1.ProtocolEBGP) {
-					// TODO Allocate AS
-					as := 65000 + index
-				}
-			}
-		*/
+
+		//	for _, protocol := range cr.GetUnderlayProtocol() {
+		//		if protocol == string(infrav1alpha1.ProtocolEBGP) {
+		//			// TODO Allocate AS
+		//			as := 65000 + index
+		//		}
+		//	}
+
 
 		ipv4 := make([]*networkv1alpha1.InterfaceSubinterfaceIpv4, 0)
 		ipv6 := make([]*networkv1alpha1.InterfaceSubinterfaceIpv6, 0)
@@ -464,3 +456,4 @@ func bigForIP(ip net.IP) *big.Int {
 	}
 	return big.NewInt(0).SetBytes(b)
 }
+*/

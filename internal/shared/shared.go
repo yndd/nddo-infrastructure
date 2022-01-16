@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/yndd/ndd-runtime/pkg/logging"
-	"github.com/yndd/nddo-infrastructure/internal/handler"
 	"github.com/yndd/nddr-org-registry/pkg/registry"
 )
 
@@ -28,5 +27,5 @@ type NddControllerOptions struct {
 	Poll      time.Duration
 	Namespace string
 	Registry  registry.Registry
-	Handler   handler.Handler
+	//Handler   handler.Handler
 }

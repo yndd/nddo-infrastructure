@@ -6,7 +6,6 @@ import (
 	"github.com/yndd/ndd-runtime/pkg/logging"
 	networkschema "github.com/yndd/ndda-network/pkg/networkschema/v1alpha1"
 	"github.com/yndd/nddo-runtime/pkg/resource"
-	topov1alpha1 "github.com/yndd/nddr-topo-registry/apis/topo/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -31,12 +30,12 @@ type Handler interface {
 	WithClient(c client.Client)
 	InitSchema(crName string) networkschema.Schema
 	DestroySchema(crName string)
-	DeploySchema(ctx context.Context, mg resource.Managed) error
+	DeploySchema(ctx context.Context, mg resource.Managed, labels map[string]string) error
 	ValidateSchema(ctx context.Context, mg resource.Managed) error
-
-	PopulateNode(ctx context.Context, mg resource.Managed, link topov1alpha1.Tl) error
-	PopulateLagMember(ctx context.Context, mg resource.Managed, link topov1alpha1.Tl) error
-	PopulateIpLink(ctx context.Context, mg resource.Managed, link topov1alpha1.Tl) error
-
 	PrintDevices(string)
+
+	//PopulateNode(ctx context.Context, mg resource.Managed, link topov1alpha1.Tl) error
+	//PopulateLagMember(ctx context.Context, mg resource.Managed, link topov1alpha1.Tl) error
+	//PopulateIpLink(ctx context.Context, mg resource.Managed, link topov1alpha1.Tl) error
+
 }
