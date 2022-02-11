@@ -28,7 +28,10 @@ import (
 // Infrastructure struct
 type InfraInfrastructure struct {
 	// +kubebuilder:default:="default-routed"
-	NetworkInstanceName *string `json:"network-instance-name,omitempty"`
+	NetworkInstanceName *string                    `json:"network-instance-name,omitempty"`
+	ASpool              *InfraInfrastructureASPool `json:"as-pool,omitempty"`
+	AS                  *uint32                    `json:"as,omitempty"`
+	Cidr                *InfraInfrastructureCidr   `json:"cidr,omitempty"`
 	// +kubebuilder:validation:Enum=`dual-stack`;`ipv4-only`;`ipv6-only`
 	AddressingScheme *string `json:"addressing-scheme,omitempty"`
 	// +kubebuilder:validation:Enum=`disable`;`enable`
@@ -46,6 +49,18 @@ type InfraInfrastructure struct {
 	//+kubebuilder:validation:MaxItems=16
 	UnderlayProtocol  []*string                   `json:"underlay-protocol,omitempty"`
 	InterfaceSelector []*nddov1.InterfaceSelector `json:"interface-selector,omitempty"`
+}
+
+type InfraInfrastructureCidr struct {
+	IslCidrIpv4      *string `json:"isl-cidr-ipv4,omitempty"`
+	IslCidrIpv6      *string `json:"isl-cidr-ipv6,omitempty"`
+	LoopbackCidrIpv4 *string `json:"loopback-cidr-ipv4,omitempty"`
+	LoopbackCidrIpv6 *string `json:"loopback-cidr-ipv6,omitempty"`
+}
+
+type InfraInfrastructureASPool struct {
+	Start *uint32 `json:"start,omitempty"`
+	End   *uint32 `json:"end,omitempty"`
 }
 
 // A InfrastructureSpec defines the desired state of a Infrastructure.

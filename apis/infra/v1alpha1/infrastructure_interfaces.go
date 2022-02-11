@@ -66,6 +66,14 @@ type If interface {
 	GetAddressingScheme() string
 	GetUnderlayProtocol() []string
 	GetOverlayProtocol() []string
+	GetCidr() *InfraInfrastructureCidr
+	GetIslCidrIpv4() string
+	GetIslCidrIpv6() string
+	GetLoopbackCidrIpv4() string
+	GetLoopbackCidrIpv6() string
+	GetAsPool() *InfraInfrastructureASPool
+	GetAsPoolStart() uint32
+	GetAsPoolEnd() uint32
 	InitializeResource() error
 
 	SetStatus(string)
@@ -159,6 +167,43 @@ func (x *Infrastructure) GetUnderlayProtocol() []string {
 		s = append(s, *protocol)
 	}
 	return s
+}
+
+func (x *Infrastructure) GetCidr() *InfraInfrastructureCidr {
+	return x.Spec.Infrastructure.Cidr
+
+}
+
+func (x *Infrastructure) GetAS() uint32 {
+	return *x.Spec.Infrastructure.AS
+}
+
+func (x *Infrastructure) GetIslCidrIpv4() string {
+	return *x.Spec.Infrastructure.Cidr.IslCidrIpv4
+}
+
+func (x *Infrastructure) GetIslCidrIpv6() string {
+	return *x.Spec.Infrastructure.Cidr.IslCidrIpv6
+}
+
+func (x *Infrastructure) GetLoopbackCidrIpv4() string {
+	return *x.Spec.Infrastructure.Cidr.LoopbackCidrIpv4
+}
+
+func (x *Infrastructure) GetLoopbackCidrIpv6() string {
+	return *x.Spec.Infrastructure.Cidr.LoopbackCidrIpv6
+}
+
+func (x *Infrastructure) GetAsPool() *InfraInfrastructureASPool {
+	return x.Spec.Infrastructure.ASpool
+}
+
+func (x *Infrastructure) GetAsPoolStart() uint32 {
+	return *x.Spec.Infrastructure.ASpool.Start
+}
+
+func (x *Infrastructure) GetAsPoolEnd() uint32 {
+	return *x.Spec.Infrastructure.ASpool.End
 }
 
 func (x *Infrastructure) InitializeResource() error {

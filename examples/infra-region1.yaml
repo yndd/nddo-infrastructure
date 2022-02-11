@@ -5,7 +5,14 @@ metadata:
   namespace: default
 spec:
   infrastructure:
-    network-instance-name: default-routed
+    network-instance-name: default
+    as: 65555
+    as-pool:
+      start: 65000
+      end: 65400
+    cidr:
+      loopback-cidr-ipv4: "100.64.0.0/24"
+      loopback-cidr-ipv6: "1000:64::/64"
     admin-state: enable
     addressing-scheme: dual-stack
     underlay-protocol:

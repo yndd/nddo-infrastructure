@@ -89,6 +89,29 @@ spec:
                     - disable
                     - enable
                     type: string
+                  as:
+                    format: int32
+                    type: integer
+                  as-pool:
+                    properties:
+                      end:
+                        format: int32
+                        type: integer
+                      start:
+                        format: int32
+                        type: integer
+                    type: object
+                  cidr:
+                    properties:
+                      isl-cidr-ipv4:
+                        type: string
+                      isl-cidr-ipv6:
+                        type: string
+                      loopback-cidr-ipv4:
+                        type: string
+                      loopback-cidr-ipv6:
+                        type: string
+                    type: object
                   description:
                     description: kubebuilder:validation:MinLength=1 kubebuilder:validation:MaxLength=255
                     pattern: '[A-Za-z0-9 !@#$^&()|+=`~.,''/_:;?-]*'
