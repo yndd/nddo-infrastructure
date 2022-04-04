@@ -18,12 +18,11 @@ package infra
 
 import (
 	"context"
-	"strings"
-	"sync"
 
 	//ndddvrv1 "github.com/yndd/ndd-core/apis/dvr/v1"
 	"github.com/yndd/ndd-runtime/pkg/logging"
 	infrav1alpha1 "github.com/yndd/nddo-infrastructure/apis/infra/v1alpha1"
+	"github.com/yndd/nddo-infrastructure/internal/speedyhandler"
 	topov1alpha1 "github.com/yndd/nddr-topo-registry/apis/topo/v1alpha1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -38,8 +37,9 @@ type EnqueueRequestForAllTopologyNodes struct {
 	log    logging.Logger
 	ctx    context.Context
 
-	speedy map[string]int
-	mutex  sync.Mutex
+	speedyHandler speedyhandler.Handler
+
+	newInfraList func() infrav1alpha1.IfList
 }
 
 // Create enqueues a request for all infrastructures which pertains to the topology.
@@ -71,25 +71,25 @@ func (e *EnqueueRequestForAllTopologyNodes) add(obj runtime.Object, queue adder)
 	log := e.log.WithValues("function", "watch toponode", "name", dd.GetName())
 	log.Debug("infra handleEvent")
 
-	d := &infrav1alpha1.InfrastructureList{}
-	if err := e.client.List(e.ctx, d); err != nil {
+	d := e.newInfraList()
+	opts := []client.ListOption{
+		client.InNamespace(dd.GetNamespace()),
+	}
+	if err := e.client.List(e.ctx, d, opts...); err != nil {
 		return
 	}
 
-	for _, infra := range d.Items {
-		deploymentName := strings.Join([]string{infra.GetOrganization(), infra.GetDeployment()}, ".")
-		// only enqueue if the topology name match
-		if strings.Contains(dd.GetName(), deploymentName) {
+	for _, infra := range d.GetInfrastructures() {
+		// only enqueue if the namespace name match
+		if infra.GetOrganization() == dd.GetOrganization() &&
+			infra.GetDeployment() == dd.GetDeployment() {
 
-			crname := infra.GetName()
-
-			e.mutex.Lock()
-			e.speedy[crname] = 0
-			e.mutex.Unlock()
+			crName := getCrName(infra)
+			e.speedyHandler.ResetSpeedy(crName)
 
 			queue.Add(reconcile.Request{NamespacedName: types.NamespacedName{
-				Namespace: dd.GetNamespace(),
-				Name:      crname}})
+				Namespace: infra.GetNamespace(),
+				Name:      infra.GetName()}})
 		}
 	}
 }

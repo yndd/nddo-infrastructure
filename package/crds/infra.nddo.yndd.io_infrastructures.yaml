@@ -10,6 +10,9 @@ metadata:
 spec:
   group: infra.nddo.yndd.io
   names:
+    categories:
+    - ndd
+    - nddo
     kind: Infrastructure
     listKind: InfrastructureList
     plural: infrastructures

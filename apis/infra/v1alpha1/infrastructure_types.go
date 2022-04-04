@@ -92,6 +92,7 @@ type InfrastructureStatus struct {
 // +kubebuilder:printcolumn:name="UNDERLAY",type="string",JSONPath=".spec.infrastructure.underlay-protocol[0]"
 // +kubebuilder:printcolumn:name="OVERLAY",type="string",JSONPath=".spec.infrastructure.overlay-protocol[0]"
 // +kubebuilder:printcolumn:name="AGE",type="date",JSONPath=".metadata.creationTimestamp"
+// +kubebuilder:resource:categories={ndd,nddo}
 type Infrastructure struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
