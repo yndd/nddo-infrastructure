@@ -7,9 +7,9 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/spf13/cobra v1.2.1
 	github.com/yndd/ndd-runtime v0.4.7
-	github.com/yndd/ndda-network v0.1.49
-	github.com/yndd/nddo-runtime v0.0.75
-	github.com/yndd/nddp-srl3 v0.1.3
+	github.com/yndd/ndda-network v0.1.52
+	github.com/yndd/nddo-runtime v0.0.76
+	github.com/yndd/nddp-srl3 v0.1.7
 	github.com/yndd/nddr-as-registry v0.0.7
 	github.com/yndd/nddr-ipam-registry v0.0.3
 	github.com/yndd/nddr-ni-registry v0.0.6

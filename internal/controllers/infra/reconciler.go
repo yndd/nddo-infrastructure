@@ -21,10 +21,11 @@ import (
 	"strings"
 	"time"
 
-	//"github.com/yndd/ndda-network/pkg/ndda/ndda"
 	"github.com/yndd/nddo-infrastructure/internal/shared"
 	"github.com/yndd/nddo-infrastructure/internal/speedyhandler"
 
+	nddv1 "github.com/yndd/ndd-runtime/apis/common/v1"
+	nddpresource "github.com/yndd/ndd-runtime/pkg/resource"
 	"github.com/yndd/nddr-org-registry/pkg/registry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -86,9 +87,9 @@ func Setup(mgr ctrl.Manager, o controller.Options, nddcopts *shared.NddControlle
 			newDeploymentList: dplfn,
 			newDeployment:     dpfn,
 			//handler:           nddcopts.Handler,
-			registry:     nddcopts.Registry,
-			intents:      make(map[string]*intent.Compositeintent),
-			abstractions: make(map[string]*abstraction.Compositeabstraction),
+			registry:      nddcopts.Registry,
+			intents:       make(map[string]*intent.Compositeintent),
+			abstractions:  make(map[string]*abstraction.Compositeabstraction),
 			speedyHandler: shandler,
 		}),
 		managed.WithRecorder(event.NewAPIRecorder(mgr.GetEventRecorderFor(name))),
@@ -145,9 +146,7 @@ type application struct {
 	newDeploymentList func() orgv1alpha1.DpList
 	newDeployment     func() orgv1alpha1.Dp
 
-	//handler  handler.Handler
-	registry registry.Registry
-	//nddaHandler   ndda.Handler
+	registry      registry.Registry
 	speedyHandler speedyhandler.Handler
 	intents       map[string]*intent.Compositeintent
 	abstractions  map[string]*abstraction.Compositeabstraction
@@ -178,12 +177,16 @@ func (r *application) Initialize(ctx context.Context, mg resource.Managed) error
 }
 
 func (r *application) Update(ctx context.Context, mg resource.Managed) (map[string]string, error) {
+	crName := getCrName(mg)
+	log := r.log.WithValues("crName", crName)
+
 	cr, ok := mg.(*infrav1alpha1.Infrastructure)
 	if !ok {
 		return nil, errors.New(errUnexpectedResource)
 	}
+	log.Debug("Update ...")
 
-	r.speedyHandler.Init(getCrName(mg))
+	r.speedyHandler.Init(crName)
 
 	//return r.handleAppLogic(ctx, cr)
 	info, err := r.populateSchema(ctx, mg)
@@ -191,9 +194,23 @@ func (r *application) Update(ctx context.Context, mg resource.Managed) (map[stri
 		return info, err
 	}
 
-	_, err = r.intents[getCrName(mg)].Validate(ctx, mg, map[string]map[string]struct{}{})
+	// list all resources which are currently in the system
+	resources, err := r.intents[crName].List(ctx, mg, map[string]map[string]nddpresource.Managed{})
 	if err != nil {
-		r.log.Debug("intent validate failed", "error", err)
+		log.Debug("intent list failed", "error", err)
+		return nil, err
+	}
+
+	// validate if the resources listed before still exists -> returns a map with resource that should be deleted
+	resources, err = r.intents[crName].Validate(ctx, mg, resources)
+	if err != nil {
+		log.Debug("intent validate failed", "error", err)
+		return nil, err
+	}
+
+	// delete the resources which should no longer be present
+	if err := r.intents[crName].Delete(ctx, mg, resources); err != nil {
+		log.Debug("intent delete failed", "error", err)
 		return nil, err
 	}
 
@@ -201,6 +218,18 @@ func (r *application) Update(ctx context.Context, mg resource.Managed) (map[stri
 	if err := r.intents[getCrName(mg)].Deploy(ctx, mg, labels); err != nil {
 		r.log.Debug("intent deploy failed", "error", err)
 		return nil, err
+	}
+
+	// list all resources which are currently in the system
+	resources, err = r.intents[crName].List(ctx, mg, map[string]map[string]nddpresource.Managed{})
+	if err != nil {
+		log.Debug("intent list failed", "error", err)
+		return nil, err
+	}
+	for nddpKind, nddpManaged := range resources {
+		for nddpName, nddpm := range nddpManaged {
+			log.Debug("nddp status", "kind", nddpKind, "name", nddpName, "Status", nddpm.GetCondition(nddv1.ConditionKindReady))
+		}
 	}
 
 	cr.SetOrganization(cr.GetOrganization())
